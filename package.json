@@ -1,0 +1,31 @@
+{
+  "name": "baifenwang-auto-study",
+  "version": "1.0.0",
+  "description": "百分网网课自动刷课脚本 — 智能拦截人脸识别验证，自动完成课程学习任务",
+  "main": "src/index.js",
+  "scripts": {
+    "build": "rollup -c",
+    "build:plain": "rollup -c rollup.greasyfork.config.js",
+    "dev": "rollup -c -w",
+    "bump:patch": "node scripts/bump-version.js patch",
+    "bump:minor": "node scripts/bump-version.js minor",
+    "bump:major": "node scripts/bump-version.js major"
+  },
+  "keywords": [
+    "userscript",
+    "tampermonkey",
+    "greasemonkey",
+    "baifenwang",
+    "auto-study"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "rollup": "^4.30.0",
+    "@rollup/plugin-node-resolve": "^16.0.0",
+    "@rollup/plugin-commonjs": "^28.0.0",
+    "@rollup/plugin-terser": "^0.4.0",
+    "rollup-plugin-userscript-metablock": "^0.4.0"
+  }
+}

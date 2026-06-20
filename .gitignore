@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.claude/
+CLAUDE.md
+.vscode/
+*.log
+.DS_Store
+Thumbs.db

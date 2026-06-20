@@ -1,0 +1,15 @@
+{
+  "name": "百分网自动刷课助手",
+  "namespace": "https://greasyfork.org/baifenwang-auto-study",
+  "version": "1.0.0",
+  "description": "自动完成百分网人脸验证与课程播放，支持防切屏检测与人脸图片管理",
+  "author": "TheSkyC",
+  "license": "MIT",
+  "homepageURL": "https://github.com/TheSkyC/baifenwang-auto-study",
+  "supportURL": "https://github.com/TheSkyC/baifenwang-auto-study/issues",
+  "match": [
+    "*://*.tj.100.wang/*"
+  ],
+  "run-at": "document-start",
+  "compatible": ["Tampermonkey", "Greasemonkey", "Violentmonkey"]
+}
