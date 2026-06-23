@@ -11,5 +11,5 @@
     "*://*.tj.100.wang/*"
   ],
   "run-at": "document-start",
-  "compatible": ["Tampermonkey", "Greasemonkey", "Violentmonkey"]
+  "compatible": ["Tampermonkey", "Greasemonkey", "Violentmonkey", "ScriptCat", "AdGuard"]
 }

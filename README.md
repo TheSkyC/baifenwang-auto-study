@@ -49,7 +49,7 @@
 
 ### 前置要求
 
-- 浏览器安装 [Tampermonkey](https://www.tampermonkey.net/) 或 [Violentmonkey](https://violentmonkey.github.io/) 扩展
+- 浏览器安装 [Tampermonkey](https://www.tampermonkey.net/)、[Violentmonkey](https://violentmonkey.github.io/)、[ScriptCat](https://docs.scriptcat.org/) 或 [AdGuard](https://adguard.com/) 扩展
 
 ### 从发布包安装
 
@@ -80,7 +80,7 @@ npm run build
 
 ## 兼容性
 
-**脚本管理器**：Tampermonkey ✅ · Violentmonkey ✅ · Greasemonkey ✅
+**脚本管理器**：Tampermonkey ✅ · Violentmonkey ✅ · Greasemonkey ✅ · ScriptCat ✅ · AdGuard ✅
 
 **浏览器**：Chrome / Edge ✅ · Firefox ✅ · 其他 Chromium ✅
 
