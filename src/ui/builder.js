@@ -11,12 +11,13 @@
 
 import { STYLES } from './styles.js';
 import { icons } from './icons.js';
-import { SCRIPT_NAME } from '../config.js';
+import { SCRIPT_NAME, SCRIPT_VERSION, GITHUB_URL } from '../config.js';
 import { bindDrawer, bindActions, bindPoolEvents, bindSettings } from './events.js';
 import { listEntries, poolSize, poolCapacity, getImageData, getImageStats, getImageQualityTier } from '../pool/image-pool.js';
 import { openCropEditor } from './crop-editor.js';
 import { createStatsSection, bindStatsEvents, refreshStats } from './progress-stats.js';
 import { clearAllProgress, exportProgress } from '../utils/progress-tracker.js';
+import { checkPageVersion } from '../utils/version-checker.js';
 
 let panelEl = null;
 
@@ -451,6 +452,132 @@ async function loadThumbImage(thumbEl, id) {
 }
 
 /**
+ * MutationObserver for watching version element appear.
+ * Disconnects automatically after detecting the version.
+ */
+let versionObserver = null;
+
+/**
+ * Build footer HTML content for given compatibility info.
+ * @param {Object} compatInfo - Result from checkPageVersion()
+ * @returns {string} HTML string for footer-left content
+ */
+function buildFooterLeftHtml(compatInfo) {
+  const iconSvg = icons[compatInfo.iconKey] || icons.versionMissing;
+
+  if (compatInfo.pageVersion) {
+    return `<span class="bfw-footer-compat" style="color: ${compatInfo.color}" title="${compatInfo.message}">${iconSvg}</span>
+       <span class="bfw-footer-version">v${SCRIPT_VERSION}</span>
+       <span class="bfw-footer-sep">|</span>
+       <span class="bfw-footer-page">页面 v${compatInfo.pageVersion}</span>`;
+  } else {
+    return `<span class="bfw-footer-compat" style="color: ${compatInfo.color}" title="${compatInfo.message}">${iconSvg}</span>
+       <span class="bfw-footer-version">v${SCRIPT_VERSION}</span>`;
+  }
+}
+
+/**
+ * Create footer info bar with version and compatibility status.
+ * Uses MutationObserver to watch for version element dynamically.
+ * @returns {HTMLElement}
+ */
+function createFooter() {
+  const footer = document.createElement('div');
+  footer.className = 'bfw-footer';
+  footer.id = 'bfw-footer';
+
+  // Build initial HTML using the same function as updates
+  const initialInfo = {
+    iconKey: 'versionMissing',
+    color: '#8c8c8c',
+    message: '正在检测版本...',
+    pageVersion: null,
+  };
+
+  footer.innerHTML = `
+    <div class="bfw-footer-left">
+      ${buildFooterLeftHtml(initialInfo)}
+    </div>
+    <div class="bfw-footer-right">
+      <a href="${GITHUB_URL}" target="_blank" class="bfw-footer-link" title="GitHub 仓库">${icons.github}</a>
+    </div>
+  `;
+
+  // Start watching for version element
+  startVersionWatch(footer);
+
+  return footer;
+}
+
+/**
+ * Start observing DOM for version element appearance.
+ * Disconnects observer once version is detected.
+ * @param {HTMLElement} footer
+ */
+function startVersionWatch(footer) {
+  // Clean up existing observer if any
+  if (versionObserver) {
+    versionObserver.disconnect();
+    versionObserver = null;
+  }
+
+  // Try immediate check first
+  const immediate = checkPageVersion();
+  if (immediate.pageVersion) {
+    updateFooterContent(footer, immediate);
+    return;
+  }
+
+  // Throttle flag to limit observer callback frequency
+  let isThrottled = false;
+
+  // Set up MutationObserver to watch for the version element
+  versionObserver = new MutationObserver((mutations) => {
+    // Throttle: skip if recently checked
+    if (isThrottled) return;
+    isThrottled = true;
+    setTimeout(() => { isThrottled = false; }, 200);
+
+    // Check if version element now exists (checkPageVersion now has fallback selectors)
+    const compatInfo = checkPageVersion();
+    if (compatInfo.pageVersion) {
+      updateFooterContent(footer, compatInfo);
+      // Disconnect observer — we found it
+      if (versionObserver) {
+        versionObserver.disconnect();
+        versionObserver = null;
+      }
+    }
+  });
+
+  // Observe entire document for additions (subtree + childList)
+  versionObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+  });
+
+  // Safety: disconnect after 30 seconds even if not found
+  setTimeout(() => {
+    if (versionObserver) {
+      versionObserver.disconnect();
+      versionObserver = null;
+    }
+  }, 30000);
+}
+
+/**
+ * Update footer left content with version info.
+ * @param {HTMLElement} footer
+ * @param {Object} compatInfo - Result from checkPageVersion()
+ */
+function updateFooterContent(footer, compatInfo) {
+  const leftEl = footer.querySelector('.bfw-footer-left');
+  if (!leftEl) return;
+
+  leftEl.innerHTML = buildFooterLeftHtml(compatInfo);
+}
+
+/**
  * Create the panel DOM structure (edge-drawer pattern).
  * @returns {HTMLElement}
  */
@@ -609,6 +736,13 @@ function createPanelDOM() {
       </div>
     </div>
   `;
+
+  // Append footer to panel-inner (after panel-body)
+  const panelInner = panel.querySelector('.bfw-panel-inner');
+  if (panelInner) {
+    panelInner.appendChild(createFooter());
+  }
+
   return panel;
 }
 

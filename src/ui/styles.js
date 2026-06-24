@@ -1795,4 +1795,75 @@ export const STYLES = `
     font-size: 11px;
     font-weight: 600;
   }
+
+  /* ================================================================
+   * Footer — minimal info bar at bottom of panel
+   * ================================================================ */
+
+  .bfw-footer {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 24px;
+    padding: 0 10px;
+    background: rgba(0, 0, 0, 0.05);
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+    font-size: 11px;
+    color: #a6adc8;
+  }
+
+  .bfw-footer-left {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .bfw-footer-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .bfw-footer-compat {
+    display: inline-flex;
+    align-items: center;
+    cursor: help;
+  }
+
+  .bfw-footer-compat svg {
+    display: block;
+  }
+
+  .bfw-footer-version {
+    font-weight: 600;
+    color: #89b4fa;
+  }
+
+  .bfw-footer-sep {
+    color: #45475a;
+  }
+
+  .bfw-footer-page {
+    color: #a6adc8;
+  }
+
+  .bfw-footer-link {
+    display: inline-flex;
+    align-items: center;
+    color: #6c7086;
+    text-decoration: none;
+    line-height: 1;
+    transition: color 0.15s, transform 0.1s;
+    cursor: pointer;
+  }
+
+  .bfw-footer-link svg {
+    display: block;
+  }
+
+  .bfw-footer-link:hover {
+    color: #89b4fa;
+    transform: scale(1.1);
+  }
 `;
