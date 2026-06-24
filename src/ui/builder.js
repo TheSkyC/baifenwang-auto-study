@@ -15,6 +15,8 @@ import { SCRIPT_NAME } from '../config.js';
 import { bindDrawer, bindActions, bindPoolEvents, bindSettings } from './events.js';
 import { listEntries, poolSize, poolCapacity, getImageData, getImageStats, getImageQualityTier } from '../pool/image-pool.js';
 import { openCropEditor } from './crop-editor.js';
+import { createStatsSection, bindStatsEvents, refreshStats } from './progress-stats.js';
+import { clearAllProgress, exportProgress } from '../utils/progress-tracker.js';
 
 let panelEl = null;
 
@@ -146,6 +148,9 @@ export async function refreshPoolThumb(panel, entryId) {
 export function refreshPoolUI(panel) {
   const target = panel || panelEl;
   if (!target) return;
+
+  // Close any open stats popup before rebuilding thumbs (prevents memory leaks)
+  hideStatsPopup();
 
   const thumbsEl = target.querySelector('#bfw-pool-thumbs');
   const countEl = target.querySelector('#bfw-pool-count');
@@ -574,6 +579,9 @@ function createPanelDOM() {
           <div class="bfw-course-stat" id="bfw-course-stat"></div>
         </div>
 
+        <!-- Progress Stats Section (inserted by createStatsSection) -->
+        <div id="bfw-stats-placeholder"></div>
+
         <!-- Image Pool Section -->
         <div class="bfw-pool-section">
           <div class="bfw-pool-header">
@@ -671,8 +679,46 @@ export function buildUI() {
   // Note: bfw:retry bubbles to document where processor.js handles it
   // (the processor logs "已触发手动重试" and performs the actual retry scan)
 
+  // Insert stats section into placeholder
+  const statsPlaceholder = panelEl.querySelector('#bfw-stats-placeholder');
+  if (statsPlaceholder) {
+    const statsSection = createStatsSection();
+    statsPlaceholder.parentNode.replaceChild(statsSection, statsPlaceholder);
+
+    // Bind stats events
+    bindStatsEvents(panelEl,
+      clearAllProgress,
+      () => {
+        const data = exportProgress();
+        const json = JSON.stringify(data, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        // Use local date format for filename
+        const date = new Date().toLocaleDateString('zh-CN').replace(/\//g, '-');
+        a.download = `bfw-stats-${date}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    );
+
+    // Initial stats refresh
+    refreshStats(panelEl);
+  }
+
   // Initial pool UI refresh
   refreshPoolUI(panelEl);
 
   return panelEl;
+}
+
+/**
+ * Refresh stats display (called when progress data changes).
+ * @param {HTMLElement} panel - The panel element
+ */
+export function refreshStatsDisplay(panel) {
+  const target = panel || panelEl;
+  if (!target) return;
+  refreshStats(target);
 }

@@ -91,4 +91,16 @@ export const icons = {
   /** Sliders — dynamic weight adjustment */
   sliders:
     svgIcon('<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>'),
+
+  /** Bar chart — statistics */
+  barChart:
+    svgIcon('<line x1="12" y1="2" x2="12" y2="22"/><path d="M19 5h-2a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/>'),
+
+  /** Chevron down — collapse/expand indicator */
+  chevronDown:
+    svgIcon('<polyline points="6 9 12 15 18 9"/>', 14),
+
+  /** Download — export data */
+  download:
+    svgIcon('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'),
 };

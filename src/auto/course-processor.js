@@ -21,6 +21,7 @@ import { COURSE_CONFIG, jitterMs, jitterMsFloor } from '../config.js';
 import { getSetting, onChange } from '../settings.js';
 import { info, debug, warn } from '../utils/logger.js';
 import { appendLog, setStatus, updateCourseProgress } from '../ui/builder.js';
+import { startSession, updateSession, endSession, getProgressData } from '../utils/progress-tracker.js';
 
 // ---------------------------------------------------------------------------
 // DOM Selectors
@@ -73,6 +74,12 @@ let cachedFiberContainer = null;
 
 /** Cached React fiber key on the container (avoids repeated Object.keys scan). */
 let cachedFiberKey = null;
+
+/** @type {string|null} Current session ID for progress tracking */
+let currentSessionId = null;
+
+/** @type {string|null} Current course ID being tracked */
+let currentCourseId = null;
 
 // ---------------------------------------------------------------------------
 // React Fiber helpers — read course data from component state
@@ -205,12 +212,15 @@ function invalidateCourseCache() {
  *   chapterCount: number,
  *   totalLessons: number,
  *   completedLessons: number,
+ *   completedChapters: number,
  *   currentChapter: string,
  *   currentName: string,
  *   currentPct: number,
  *   curChapLessons: number,
  *   curChapDone: number,
- *   remainingMinutes: number
+ *   remainingMinutes: number,
+ *   courseId: string,
+ *   courseName: string
  * }}
  */
 function parseCourseProgress() {
@@ -219,12 +229,15 @@ function parseCourseProgress() {
     chapterCount: 0,
     totalLessons: 0,
     completedLessons: 0,
+    completedChapters: 0,
     currentChapter: '',
     currentName: '',
     currentPct: 0,
     curChapLessons: 0,      // total lessons in the current chapter
     curChapDone: 0,         // completed (studyStatus 3) in the current chapter
     remainingMinutes: 0,
+    courseId: '',
+    courseName: '',
   };
 
   if (!chapters) return result;
@@ -267,6 +280,38 @@ function parseCourseProgress() {
       result.curChapLessons = curLessons.length;
       result.curChapDone = curLessons.filter(l => l.studyStatus === 3).length;
     }
+  }
+
+  // ---- Third pass: compute completed chapters count ----
+  result.completedChapters = chapters.filter(chapter => {
+    if (chapter.chapterType !== 0) return false;
+    const lessons = (chapter.children || []).filter(l => l.chapterType === 1);
+    return lessons.length > 0 && lessons.every(l => l.studyStatus === 3);
+  }).length;
+
+  // ---- Extract course identification info ----
+  // Create a stable course ID from URL pathname
+  // Prioritize extracting numeric course ID from URL (e.g., /course/12345)
+  const pathname = window.location.pathname;
+  const urlMatch = pathname.match(/\/(?:course|study|learn|class)\/(\d+)/i);
+  result.courseId = urlMatch ? `course-${urlMatch[1]}` : pathname;
+
+  // For course name: check if we've already cached a name for this courseId
+  // (prevents name drift when document.title changes dynamically)
+  const progressData = getProgressData();
+  const existingCourse = progressData?.courses?.[result.courseId];
+  if (existingCourse && existingCourse.name) {
+    result.courseName = existingCourse.name;
+  } else {
+    // First time seeing this course — extract name from document title
+    let title = document.title || '百分网在线学习';
+    title = title.replace(/\s*[-–—]\s*(百分网|在线学习|正在学习).*$/, '').trim();
+
+    // Fallback to first chapter name if title cleanup resulted in empty string
+    const firstChapterName = chapters.length > 0 && chapters[0].chapterType === 0
+      ? chapters[0].name
+      : '';
+    result.courseName = title || firstChapterName || '百分网在线学习';
   }
 
   // ---- Fallback: no in-progress lesson found.  Use the first chapter that
@@ -426,6 +471,7 @@ function scheduleStuckCheck() {
 
 /**
  * Push current course progress and video info to the UI.
+ * Also updates the current progress tracking session.
  */
 function pushProgress() {
   const courseProgress = parseCourseProgress();
@@ -437,6 +483,11 @@ function pushProgress() {
     videoPaused: videoInfo.paused,
     autoCourseEnabled: getSetting('autoCourse', false),
   });
+
+  // Update progress tracker with current lesson/chapter counts
+  if (currentSessionId && courseProgress.totalLessons > 0) {
+    updateSession(courseProgress.completedChapters, courseProgress.completedLessons, courseProgress.totalLessons);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -579,7 +630,16 @@ export function startCourseMonitor() {
   appendLog('课程监控已启动');
 
   // Pre-load course data from React state
-  getCourseData();
+  const courseData = getCourseData();
+
+  // Initialize progress tracking session
+  // Extract stable course ID and name from parsed progress
+  const courseProgress = parseCourseProgress();
+  currentCourseId = courseProgress.courseId || `course-${Date.now()}`;
+  const courseName = courseProgress.courseName || '百分网在线学习';
+  currentSessionId = startSession(currentCourseId, courseName);
+
+  debug(`Course monitor: tracking session ${currentSessionId} for "${courseName}" (id: ${currentCourseId})`);
 
   // Bind video events
   initVideoMonitor();
@@ -638,7 +698,7 @@ export function startCourseMonitor() {
  * Stop the course monitor.
  * Cleans up observers, timers, and event listeners.
  */
-export function stopCourseMonitor() {
+export async function stopCourseMonitor() {
   if (!running) return;
 
   running = false;
@@ -666,6 +726,18 @@ export function stopCourseMonitor() {
 
   resumeAttempts = 0;
   invalidateCourseCache();
+
+  // End the current progress tracking session
+  if (currentSessionId) {
+    try {
+      await endSession();
+      debug('Course monitor: progress session ended successfully');
+    } catch (e) {
+      warn('Course monitor: failed to end progress session:', e);
+    }
+    currentSessionId = null;
+    currentCourseId = null;
+  }
 
   info('Course monitor stopped');
   appendLog('课程监控已停止');

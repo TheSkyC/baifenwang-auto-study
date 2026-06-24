@@ -22,6 +22,9 @@ export const CURRENT_LOG_LEVEL = LOG_LEVEL.INFO;
 // Settings storage key (shared across GM, localStorage, and in-memory backends)
 export const SETTINGS_KEY = 'bfw_settings';
 
+// Progress tracker storage key
+export const PROGRESS_TRACKER_KEY = 'bfw_progress';
+
 // Retry settings for auto-processor
 export const AUTO_CONFIG = {
   /** Delay before initial sequence kickoff (ms) */

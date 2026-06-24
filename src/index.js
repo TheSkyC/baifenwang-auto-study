@@ -6,13 +6,14 @@
 import { SCRIPT_NAME, SCRIPT_VERSION } from './config.js';
 import { debug, info, warn, error } from './utils/logger.js';
 import { loadSettings } from './settings.js';        // persistent settings loader
+import { loadProgressTracker } from './utils/progress-tracker.js';  // progress history loader
 import { installVideoInterceptor } from './core/video-interceptor.js';
 import { initVideoOverlay } from './ui/video-overlay.js';
 import { installVisibilityInterceptor, initVisibilityInterceptorSettings } from './core/visibility-interceptor.js';
 import { buildUI, appendLog, setStatus } from './ui/builder.js';
 import { startAutoProcessor } from './auto/processor.js';
 import './auto/course-processor.js';    // side-effect: registers settings listener
-import { startCourseMonitor } from './auto/course-processor.js';
+import { startCourseMonitor, stopCourseMonitor } from './auto/course-processor.js';
 import { initPool } from './pool/image-pool.js';
 
 /**
@@ -57,6 +58,15 @@ function bootstrap() {
     } catch (e) {
       fail(`Settings load failed: ${e?.message || e}`);
       error('Settings load failed:', e);
+    }
+
+    // 2a1. Progress tracker (learning history)
+    try {
+      await loadProgressTracker();
+      debug('Progress tracker loaded successfully');
+    } catch (e) {
+      // Non-fatal — stats panel will show empty data if this fails
+      warn('Progress tracker init failed (non-fatal):', e);
     }
 
     // 2a2. Visibility interceptor — must run after settings load
@@ -113,6 +123,20 @@ function bootstrap() {
   } else {
     mountUI();
   }
+
+  // ---- Phase 3: register cleanup hooks for session tracking ----
+
+  // End active session when user leaves/refreshes the page
+  window.addEventListener('beforeunload', () => {
+    try {
+      // stopCourseMonitor is async but beforeunload handlers should not be async
+      // Just call endSession synchronously (best-effort save)
+      stopCourseMonitor();
+    } catch (e) {
+      // Swallow errors in beforeunload to avoid blocking navigation
+      error('Failed to stop course monitor on page unload:', e);
+    }
+  });
 }
 
 bootstrap();

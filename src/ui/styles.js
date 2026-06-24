@@ -1373,4 +1373,426 @@ export const STYLES = `
       gap: 8px;
     }
   }
+
+  /* ================================================================
+   * Progress Stats Section — learning history and aggregate stats
+   * ================================================================ */
+
+  .bfw-stats-section {
+    margin-top: 14px;
+    padding: 0;
+    border-top: 1px solid rgba(69, 71, 90, 0.5);
+  }
+
+  .bfw-stats-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 10px 10px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+    border-radius: 6px 6px 0 0;
+  }
+
+  .bfw-stats-header:hover {
+    background: rgba(49, 50, 68, 0.25);
+  }
+
+  .bfw-stats-title {
+    font-weight: 600;
+    font-size: 13px;
+    color: #cdd6f4;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    letter-spacing: 0.3px;
+  }
+
+  .bfw-stats-toggle {
+    background: none;
+    border: none;
+    color: #74c7ec;
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s;
+    border-radius: 4px;
+  }
+
+  .bfw-stats-toggle:hover {
+    color: #89b4fa;
+    background: rgba(137, 180, 250, 0.1);
+  }
+
+  .bfw-stats-content {
+    padding: 0 8px 14px;
+    max-height: 600px;
+    overflow-y: auto;
+  }
+
+  .bfw-stats-content::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  .bfw-stats-content::-webkit-scrollbar-thumb {
+    background: #45475a;
+    border-radius: 3px;
+  }
+
+  .bfw-stats-group {
+    margin-bottom: 18px;
+  }
+
+  .bfw-stats-group-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #74c7ec;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    padding-left: 2px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .bfw-stats-group-title::before {
+    content: '';
+    width: 3px;
+    height: 12px;
+    background: linear-gradient(180deg, #89b4fa, #74c7ec);
+    border-radius: 2px;
+    box-shadow: 0 0 6px rgba(116, 199, 236, 0.4);
+  }
+
+  /* ---- Weekly trend chart ---- */
+
+  .bfw-trend-chart {
+    position: relative;
+    background: linear-gradient(135deg, rgba(49, 50, 68, 0.4) 0%, rgba(40, 40, 61, 0.5) 100%);
+    border: 1px solid rgba(69, 71, 90, 0.5);
+    border-radius: 8px;
+    padding: 16px 12px 12px;
+    overflow: hidden;
+  }
+
+  .bfw-trend-chart::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(137, 180, 250, 0.4), transparent);
+  }
+
+  #bfw-trend-canvas {
+    display: block;
+    width: 100%;
+    height: 140px;
+  }
+
+  /* ---- Summary cards grid ---- */
+
+  .bfw-stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .bfw-stat-card {
+    background: linear-gradient(135deg, rgba(49, 50, 68, 0.5) 0%, rgba(40, 40, 61, 0.6) 100%);
+    border: 1px solid rgba(69, 71, 90, 0.6);
+    border-radius: 8px;
+    padding: 12px 10px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .bfw-stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(137, 180, 250, 0.3), transparent);
+  }
+
+  .bfw-stat-card:hover {
+    transform: translateY(-1px);
+    border-color: rgba(137, 180, 250, 0.5);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  }
+
+  .stat-label {
+    font-size: 10px;
+    color: #a6adc8;
+    margin-bottom: 6px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+  }
+
+  .stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.2;
+  }
+
+  /* ---- Recent sessions list ---- */
+
+  .bfw-recent-sessions {
+    max-height: 240px;
+    overflow-y: auto;
+    border-radius: 8px;
+    background: rgba(17, 17, 27, 0.4);
+    border: 1px solid rgba(69, 71, 90, 0.4);
+  }
+
+  .bfw-recent-sessions::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .bfw-recent-sessions::-webkit-scrollbar-thumb {
+    background: #45475a;
+    border-radius: 2px;
+  }
+
+  .bfw-sessions-empty {
+    padding: 20px 16px;
+    text-align: center;
+    color: #6c7086;
+    font-size: 11px;
+  }
+
+  .bfw-session-item {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(69, 71, 90, 0.3);
+    transition: background 0.15s;
+    position: relative;
+  }
+
+  .bfw-session-item:last-child {
+    border-bottom: none;
+  }
+
+  .bfw-session-item:hover {
+    background: rgba(49, 50, 68, 0.3);
+  }
+
+  .bfw-session-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 0;
+    background: linear-gradient(180deg, #89b4fa, #74c7ec);
+    border-radius: 0 2px 2px 0;
+    transition: height 0.2s;
+  }
+
+  .bfw-session-item:hover::before {
+    height: 60%;
+  }
+
+  .session-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #cdd6f4;
+    margin-bottom: 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .session-meta {
+    font-size: 10px;
+    color: #a6adc8;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .session-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  /* ---- Courses breakdown list ---- */
+
+  .bfw-courses-list {
+    max-height: 280px;
+    overflow-y: auto;
+    border-radius: 8px;
+    background: rgba(17, 17, 27, 0.4);
+    border: 1px solid rgba(69, 71, 90, 0.4);
+  }
+
+  .bfw-courses-list::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .bfw-courses-list::-webkit-scrollbar-thumb {
+    background: #45475a;
+    border-radius: 2px;
+  }
+
+  .bfw-courses-empty {
+    padding: 20px 16px;
+    text-align: center;
+    color: #6c7086;
+    font-size: 11px;
+  }
+
+  .bfw-course-item {
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(69, 71, 90, 0.3);
+    transition: background 0.15s;
+    position: relative;
+  }
+
+  .bfw-course-item:last-child {
+    border-bottom: none;
+  }
+
+  .bfw-course-item:hover {
+    background: rgba(49, 50, 68, 0.3);
+  }
+
+  .course-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .course-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #cdd6f4;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-right: 8px;
+  }
+
+  .course-rate {
+    font-size: 13px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    flex-shrink: 0;
+    min-width: 38px;
+    text-align: right;
+  }
+
+  .course-progress {
+    margin-bottom: 8px;
+  }
+
+  .course-bar {
+    height: 6px;
+    background: rgba(45, 48, 71, 0.6);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .course-bar::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg,
+      transparent,
+      rgba(255, 255, 255, 0.08) 50%,
+      transparent);
+    animation: bfw-shimmer 2s infinite;
+    opacity: 0;
+  }
+
+  .course-bar:hover::before {
+    opacity: 1;
+  }
+
+  @keyframes bfw-shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  .course-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #89b4fa 0%, #74c7ec 50%, #94e2d5 100%);
+    border-radius: 3px;
+    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    box-shadow: 0 0 8px rgba(137, 180, 250, 0.3);
+  }
+
+  .course-bar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 8px;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25));
+    border-radius: 0 3px 3px 0;
+  }
+
+  .course-stats {
+    font-size: 10px;
+    color: #a6adc8;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .course-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .course-stat::before {
+    content: '·';
+    color: #45475a;
+    font-weight: 700;
+  }
+
+  .course-stat:first-child::before {
+    content: none;
+  }
+
+  /* ---- Actions row ---- */
+
+  .bfw-stats-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(69, 71, 90, 0.3);
+  }
+
+  .bfw-stats-actions .bfw-btn {
+    flex: 1;
+    padding: 7px 12px;
+    font-size: 11px;
+    font-weight: 600;
+  }
 `;
