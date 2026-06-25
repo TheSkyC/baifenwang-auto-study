@@ -1,0 +1,6 @@
+name = "bfw-update-api"
+main = "src/index.js"
+compatibility_date = "2025-06-25"
+
+[observability]
+enabled = true
