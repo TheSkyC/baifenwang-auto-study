@@ -623,8 +623,9 @@ function createUpdateBadge(footer) {
     if (!result.hasUpdate) {
       // Up to date — show subtle version tag, no pulse
       btn.className = 'bfw-update-btn';
-      btn.title = `已是最新版本 v${result.latestVersion}`;
+      btn.title = `已是最新版本 v${result.latestVersion}，点击重新检测`;
       btn.innerHTML = icons.tag;
+      btn.onclick = (e) => { e.stopPropagation(); triggerRecheck(); };
       return;
     }
 
@@ -660,12 +661,6 @@ function createUpdateBadge(footer) {
     invalidateUpdateCache();
     checkForUpdate(onResult, { force: true, delay: 0, onError });
   };
-
-  // Right-click / long-press to force re-check
-  btn.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    triggerRecheck();
-  });
 
   checkForUpdate(onResult, { onError });
 
