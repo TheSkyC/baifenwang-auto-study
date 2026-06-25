@@ -673,7 +673,7 @@ function createUpdateBadge(footer) {
     // Has update — orange pulsing badge
     btn.className = 'bfw-update-btn has-update';
     btn.title = `发现新版本 v${result.latestVersion}，点击查看`;
-    btn.innerHTML = `${icons.arrowUpCircle} <span style="font-size:10px;font-weight:600;">v${result.latestVersion}</span>`;
+    btn.innerHTML = `${icons.arrowUpCircle}<span style="font-weight:600;">v${result.latestVersion}</span>`;
 
     // Use onclick (not addEventListener) so re-check via contextmenu never stacks listeners
     btn.onclick = (e) => {

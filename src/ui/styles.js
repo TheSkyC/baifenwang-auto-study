@@ -1903,7 +1903,7 @@ export const STYLES = `
     border-radius: 4px;
     cursor: pointer;
     color: #a6adc8;
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1;
     transition: color 0.2s, background 0.2s;
     position: relative;
