@@ -135,14 +135,21 @@ async function fetchUpdateInfo() {
  * @param {Function} [opts.onError]  — called when the check fails (network/timeout)
  */
 export function checkForUpdate(onResult, { force = false, delay = CHECK_DELAY_MS, onError } = {}) {
-  setTimeout(async () => {
-    if (!force) {
-      const cached = await readCache();
+  // Serve from cache immediately (localStorage is synchronous, no need to wait).
+  if (!force) {
+    readCache().then(cached => {
       if (cached) {
         logger.debug('[update] serving from cache:', cached.latestVersion);
         onResult(cached);
-        return;
       }
+    });
+  }
+
+  // Deferred network fetch — only when cache misses or force=true.
+  setTimeout(async () => {
+    if (!force) {
+      const cached = await readCache();
+      if (cached) return; // already served immediately above
     }
 
     try {
