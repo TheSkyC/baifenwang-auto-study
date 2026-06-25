@@ -11,13 +11,14 @@
 
 import { STYLES } from './styles.js';
 import { icons } from './icons.js';
-import { SCRIPT_NAME, SCRIPT_VERSION, GITHUB_URL } from '../config.js';
+import { SCRIPT_NAME, SCRIPT_VERSION, GITHUB_URL, GREASYFORK_URL } from '../config.js';
 import { bindDrawer, bindActions, bindPoolEvents, bindSettings } from './events.js';
 import { listEntries, poolSize, poolCapacity, getImageData, getImageStats, getImageQualityTier } from '../pool/image-pool.js';
 import { openCropEditor } from './crop-editor.js';
 import { createStatsSection, bindStatsEvents, refreshStats } from './progress-stats.js';
 import { clearAllProgress, exportProgress } from '../utils/progress-tracker.js';
 import { checkPageVersion } from '../utils/version-checker.js';
+import { checkForUpdate, invalidateUpdateCache } from '../utils/update-checker.js';
 
 let panelEl = null;
 
@@ -457,11 +458,13 @@ async function loadThumbImage(thumbEl, id) {
  */
 let versionObserver = null;
 
-/**
- * Build footer HTML content for given compatibility info.
- * @param {Object} compatInfo - Result from checkPageVersion()
- * @returns {string} HTML string for footer-left content
- */
+/** Cached update result — set after checkForUpdate resolves. */
+let _updateResult = null;
+
+// ---------------------------------------------------------------------------
+// Footer left — compat version display
+// ---------------------------------------------------------------------------
+
 function buildFooterLeftHtml(compatInfo) {
   const iconSvg = icons[compatInfo.iconKey] || icons.versionMissing;
 
@@ -470,23 +473,214 @@ function buildFooterLeftHtml(compatInfo) {
        <span class="bfw-footer-version">v${SCRIPT_VERSION}</span>
        <span class="bfw-footer-sep">|</span>
        <span class="bfw-footer-page">页面 v${compatInfo.pageVersion}</span>`;
-  } else {
-    return `<span class="bfw-footer-compat" style="color: ${compatInfo.color}" title="${compatInfo.message}">${iconSvg}</span>
-       <span class="bfw-footer-version">v${SCRIPT_VERSION}</span>`;
   }
+  return `<span class="bfw-footer-compat" style="color: ${compatInfo.color}" title="${compatInfo.message}">${iconSvg}</span>
+       <span class="bfw-footer-version">v${SCRIPT_VERSION}</span>`;
+}
+
+function updateFooterContent(footer, compatInfo) {
+  const leftEl = footer.querySelector('.bfw-footer-left');
+  if (!leftEl) return;
+  leftEl.innerHTML = buildFooterLeftHtml(compatInfo);
+}
+
+// ---------------------------------------------------------------------------
+// Footer right — update badge
+// ---------------------------------------------------------------------------
+
+const TYPE_LABELS = {
+  feature:     '新功能',
+  fix:         '修复',
+  improvement: '优化',
+  performance: '性能',
+  security:    '安全',
+  breaking:    '破坏性',
+  docs:        '文档',
+  internal:    '内部',
+};
+
+/**
+ * Render the changelog card DOM.
+ * @param {import('../utils/update-checker.js').UpdateResult} result
+ * @returns {HTMLElement}
+ */
+function createUpdateCard(result) {
+  const card = document.createElement('div');
+  card.className = 'bfw-update-card';
+
+  // Static skeleton — no remote content here
+  card.innerHTML = `
+    <div class="bfw-update-card-header">
+      <span class="bfw-update-card-title">
+        ${icons.arrowUpCircle} 发现新版本
+      </span>
+      <button class="bfw-update-card-close" title="关闭">${icons.x}</button>
+    </div>
+    <div class="bfw-update-card-meta">
+      <span>v${SCRIPT_VERSION}</span>
+      <span class="arrow">→</span>
+      <span class="version-badge">${icons.tag} <span class="bfw-latest-ver"></span></span>
+    </div>
+    <div class="bfw-update-changelog"></div>
+    <div class="bfw-update-card-actions">
+      <button class="bfw-update-install-btn">立即安装</button>
+    </div>
+  `;
+
+  // Populate remote-sourced content via textContent / DOM APIs (no innerHTML for untrusted data)
+  card.querySelector('.bfw-latest-ver').textContent = `v${result.latestVersion}`;
+
+  const changelogEl = card.querySelector('.bfw-update-changelog');
+  const entries = result.changelog.slice(0, 8);
+  if (entries.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'bfw-update-changelog-empty';
+    empty.textContent = '暂无详细更新说明';
+    changelogEl.appendChild(empty);
+  } else {
+    entries.forEach((e) => {
+      const row = document.createElement('div');
+      row.className = 'bfw-changelog-entry';
+
+      const typeSpan = document.createElement('span');
+      const safeType = /^[a-z]+$/.test(e.type) ? e.type : 'internal';
+      typeSpan.className = `bfw-changelog-type bfw-type-${safeType}`;
+      typeSpan.textContent = TYPE_LABELS[e.type] ?? e.type;
+
+      const textSpan = document.createElement('span');
+      textSpan.className = 'bfw-changelog-text';
+      textSpan.textContent = e.title;
+      if (e.description) {
+        const desc = document.createElement('span');
+        desc.className = 'desc';
+        desc.textContent = e.description;
+        textSpan.appendChild(desc);
+      }
+
+      row.appendChild(typeSpan);
+      row.appendChild(textSpan);
+      changelogEl.appendChild(row);
+    });
+  }
+
+  const actionsEl = card.querySelector('.bfw-update-card-actions');
+
+  if (result.releaseUrl) {
+    const releaseBtn = document.createElement('button');
+    releaseBtn.className = 'bfw-update-release-btn';
+    releaseBtn.textContent = '发布说明';
+    releaseBtn.addEventListener('click', () => window.open(result.releaseUrl, '_blank'));
+    actionsEl.appendChild(releaseBtn);
+  }
+
+  // Close button
+  card.querySelector('.bfw-update-card-close').addEventListener('click', () => {
+    card.remove();
+  });
+
+  // Install button — opens download URL (triggers script manager install dialog)
+  card.querySelector('.bfw-update-install-btn').addEventListener('click', () => {
+    if (result.downloadUrl) window.open(result.downloadUrl, '_blank');
+    card.remove();
+  });
+
+  // Click outside to close
+  setTimeout(() => {
+    const onOutside = (e) => {
+      if (!card.contains(e.target)) {
+        card.remove();
+        document.removeEventListener('click', onOutside);
+      }
+    };
+    document.addEventListener('click', onOutside);
+  }, 0);
+
+  return card;
 }
 
 /**
- * Create footer info bar with version and compatibility status.
- * Uses MutationObserver to watch for version element dynamically.
- * @returns {HTMLElement}
+ * Create the update badge button in the footer-right area.
+ * Starts in "checking" state; transitions to idle or has-update after the
+ * checkForUpdate callback fires.
+ *
+ * @param {HTMLElement} footer
+ * @returns {HTMLElement} The badge button element
  */
+function createUpdateBadge(footer) {
+  const wrapper = document.createElement('div');
+  wrapper.style.position = 'relative';
+
+  const btn = document.createElement('button');
+  btn.className = 'bfw-update-btn checking';
+  btn.title = '正在检测更新…';
+  btn.innerHTML = `<span class="bfw-icon-spin">${icons.loader}</span>`;
+  wrapper.appendChild(btn);
+
+  // Called when checkForUpdate resolves
+  const onResult = (result) => {
+    _updateResult = result;
+
+    if (!result.hasUpdate) {
+      // Up to date — show subtle version tag, no pulse
+      btn.className = 'bfw-update-btn';
+      btn.title = `已是最新版本 v${result.latestVersion}`;
+      btn.innerHTML = icons.tag;
+      return;
+    }
+
+    // Has update — orange pulsing badge
+    btn.className = 'bfw-update-btn has-update';
+    btn.title = `发现新版本 v${result.latestVersion}，点击查看`;
+    btn.innerHTML = `${icons.arrowUpCircle} <span style="font-size:10px;font-weight:600;">v${result.latestVersion}</span>`;
+
+    // Use onclick (not addEventListener) so re-check via contextmenu never stacks listeners
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const existing = wrapper.querySelector('.bfw-update-card');
+      if (existing) { existing.remove(); return; }
+      wrapper.appendChild(createUpdateCard(result));
+    };
+  };
+
+  // triggerRecheck and onError are mutually referencing — use let to allow forward reference
+  let triggerRecheck;
+
+  const onError = () => {
+    btn.className = 'bfw-update-btn';
+    btn.title = '检测更新失败，点击重试';
+    btn.innerHTML = icons.tag;
+    btn.onclick = (e) => { e.stopPropagation(); triggerRecheck(); };
+  };
+
+  triggerRecheck = () => {
+    btn.className = 'bfw-update-btn checking';
+    btn.title = '正在检测更新…';
+    btn.innerHTML = `<span class="bfw-icon-spin">${icons.loader}</span>`;
+    btn.onclick = null;
+    invalidateUpdateCache();
+    checkForUpdate(onResult, { force: true, delay: 0, onError });
+  };
+
+  // Right-click / long-press to force re-check
+  btn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    triggerRecheck();
+  });
+
+  checkForUpdate(onResult, { onError });
+
+  return wrapper;
+}
+
+// ---------------------------------------------------------------------------
+// Footer assembly
+// ---------------------------------------------------------------------------
+
 function createFooter() {
   const footer = document.createElement('div');
   footer.className = 'bfw-footer';
   footer.id = 'bfw-footer';
 
-  // Build initial HTML using the same function as updates
   const initialInfo = {
     iconKey: 'versionMissing',
     color: '#8c8c8c',
@@ -498,51 +692,49 @@ function createFooter() {
     <div class="bfw-footer-left">
       ${buildFooterLeftHtml(initialInfo)}
     </div>
-    <div class="bfw-footer-right">
-      <a href="${GITHUB_URL}" target="_blank" class="bfw-footer-link" title="GitHub 仓库">${icons.github}</a>
-    </div>
+    <div class="bfw-footer-right"></div>
   `;
 
-  // Start watching for version element
-  startVersionWatch(footer);
+  // Right side: update badge + GitHub link
+  const right = footer.querySelector('.bfw-footer-right');
+  right.appendChild(createUpdateBadge(footer));
+  const ghLink = document.createElement('a');
+  ghLink.href = GITHUB_URL;
+  ghLink.target = '_blank';
+  ghLink.className = 'bfw-footer-link';
+  ghLink.title = 'GitHub 仓库';
+  ghLink.innerHTML = icons.github;
+  right.appendChild(ghLink);
 
+  startVersionWatch(footer);
   return footer;
 }
 
-/**
- * Start observing DOM for version element appearance.
- * Disconnects observer once version is detected.
- * @param {HTMLElement} footer
- */
+// ---------------------------------------------------------------------------
+// Version watch (page compat, unchanged logic)
+// ---------------------------------------------------------------------------
+
 function startVersionWatch(footer) {
-  // Clean up existing observer if any
   if (versionObserver) {
     versionObserver.disconnect();
     versionObserver = null;
   }
 
-  // Try immediate check first
   const immediate = checkPageVersion();
   if (immediate.pageVersion) {
     updateFooterContent(footer, immediate);
     return;
   }
 
-  // Throttle flag to limit observer callback frequency
   let isThrottled = false;
-
-  // Set up MutationObserver to watch for the version element
-  versionObserver = new MutationObserver((mutations) => {
-    // Throttle: skip if recently checked
+  versionObserver = new MutationObserver(() => {
     if (isThrottled) return;
     isThrottled = true;
     setTimeout(() => { isThrottled = false; }, 200);
 
-    // Check if version element now exists (checkPageVersion now has fallback selectors)
     const compatInfo = checkPageVersion();
     if (compatInfo.pageVersion) {
       updateFooterContent(footer, compatInfo);
-      // Disconnect observer — we found it
       if (versionObserver) {
         versionObserver.disconnect();
         versionObserver = null;
@@ -550,31 +742,14 @@ function startVersionWatch(footer) {
     }
   });
 
-  // Observe entire document for additions (subtree + childList)
-  versionObserver.observe(document.body, {
-    childList: true,
-    subtree: true,
-  });
+  versionObserver.observe(document.body, { childList: true, subtree: true });
 
-  // Safety: disconnect after 30 seconds even if not found
   setTimeout(() => {
     if (versionObserver) {
       versionObserver.disconnect();
       versionObserver = null;
     }
   }, 30000);
-}
-
-/**
- * Update footer left content with version info.
- * @param {HTMLElement} footer
- * @param {Object} compatInfo - Result from checkPageVersion()
- */
-function updateFooterContent(footer, compatInfo) {
-  const leftEl = footer.querySelector('.bfw-footer-left');
-  if (!leftEl) return;
-
-  leftEl.innerHTML = buildFooterLeftHtml(compatInfo);
 }
 
 /**

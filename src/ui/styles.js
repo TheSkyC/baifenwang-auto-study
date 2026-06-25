@@ -1866,4 +1866,253 @@ export const STYLES = `
     color: #89b4fa;
     transform: scale(1.1);
   }
+
+  /* ================================================================
+   * Update badge — shown in footer-right when an update is available
+   * ================================================================ */
+
+  .bfw-update-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: none;
+    border: none;
+    padding: 2px 3px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #a6adc8;
+    font-size: 10px;
+    line-height: 1;
+    transition: color 0.2s, background 0.2s;
+    position: relative;
+  }
+
+  .bfw-update-btn:hover {
+    color: #cdd6f4;
+    background: rgba(137, 180, 250, 0.08);
+  }
+
+  /* Spinning loader state */
+  .bfw-update-btn.checking {
+    color: #585b70;
+    pointer-events: none;
+  }
+
+  /* Update available state — orange accent */
+  .bfw-update-btn.has-update {
+    color: #fab387;
+    animation: bfw-update-pulse 2.5s ease-in-out infinite;
+  }
+
+  .bfw-update-btn.has-update:hover {
+    color: #fe9057;
+    background: rgba(250, 179, 135, 0.1);
+    animation: none;
+  }
+
+  @keyframes bfw-update-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.6; }
+  }
+
+  /* ================================================================
+   * Update changelog card — pops up above the footer
+   * ================================================================ */
+
+  .bfw-update-card {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    right: 0;
+    width: 300px;
+    background: #1e1e2e;
+    border: 1px solid rgba(250, 179, 135, 0.35);
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(250, 179, 135, 0.08);
+    z-index: 10;
+    overflow: hidden;
+    animation: bfw-card-in 0.18s cubic-bezier(0.2, 0, 0.2, 1);
+    transform-origin: bottom right;
+  }
+
+  @keyframes bfw-card-in {
+    from { opacity: 0; transform: scale(0.94) translateY(4px); }
+    to   { opacity: 1; transform: scale(1)   translateY(0);    }
+  }
+
+  .bfw-update-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid rgba(49, 50, 68, 0.8);
+  }
+
+  .bfw-update-card-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fab387;
+  }
+
+  .bfw-update-card-close {
+    background: none;
+    border: none;
+    padding: 2px;
+    cursor: pointer;
+    color: #585b70;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+  }
+
+  .bfw-update-card-close:hover {
+    color: #cdd6f4;
+    background: rgba(205, 214, 244, 0.08);
+  }
+
+  .bfw-update-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px 0;
+    font-size: 11px;
+    color: #a6adc8;
+  }
+
+  .bfw-update-card-meta .version-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: rgba(250, 179, 135, 0.12);
+    color: #fab387;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .bfw-update-card-meta .arrow {
+    color: #45475a;
+    font-size: 10px;
+  }
+
+  /* Changelog list inside the card */
+  .bfw-update-changelog {
+    padding: 8px 12px;
+    max-height: 180px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #313244 transparent;
+  }
+
+  .bfw-update-changelog::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .bfw-update-changelog::-webkit-scrollbar-thumb {
+    background: #313244;
+    border-radius: 2px;
+  }
+
+  .bfw-update-changelog-empty {
+    font-size: 11px;
+    color: #585b70;
+    padding: 4px 0;
+  }
+
+  .bfw-changelog-entry {
+    display: flex;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 11px;
+    line-height: 1.4;
+    border-bottom: 1px solid rgba(49, 50, 68, 0.5);
+  }
+
+  .bfw-changelog-entry:last-child {
+    border-bottom: none;
+  }
+
+  .bfw-changelog-type {
+    flex-shrink: 0;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    padding: 1px 5px;
+    border-radius: 3px;
+    align-self: flex-start;
+    margin-top: 1px;
+    text-transform: uppercase;
+  }
+
+  .bfw-type-feature    { background: rgba(137, 180, 250, 0.15); color: #89b4fa; }
+  .bfw-type-fix        { background: rgba(243, 139, 168, 0.15); color: #f38ba8; }
+  .bfw-type-improvement{ background: rgba(166, 227, 161, 0.15); color: #a6e3a1; }
+  .bfw-type-performance{ background: rgba(249, 226, 175, 0.15); color: #f9e2af; }
+  .bfw-type-security   { background: rgba(250, 179, 135, 0.15); color: #fab387; }
+  .bfw-type-breaking   { background: rgba(243, 139, 168, 0.2);  color: #f38ba8; }
+  .bfw-type-docs       { background: rgba(108, 112, 134, 0.2);  color: #6c7086; }
+  .bfw-type-internal   { background: rgba(69, 71, 90, 0.4);     color: #45475a; }
+
+  .bfw-changelog-text {
+    color: #cdd6f4;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .bfw-changelog-text .desc {
+    display: block;
+    font-size: 10px;
+    color: #6c7086;
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Card action buttons */
+  .bfw-update-card-actions {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px 10px;
+    border-top: 1px solid rgba(49, 50, 68, 0.8);
+  }
+
+  .bfw-update-install-btn {
+    flex: 1;
+    background: rgba(250, 179, 135, 0.15);
+    border: 1px solid rgba(250, 179, 135, 0.3);
+    color: #fab387;
+    border-radius: 5px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .bfw-update-install-btn:hover {
+    background: rgba(250, 179, 135, 0.25);
+    border-color: rgba(250, 179, 135, 0.5);
+  }
+
+  .bfw-update-release-btn {
+    background: none;
+    border: 1px solid rgba(69, 71, 90, 0.6);
+    color: #6c7086;
+    border-radius: 5px;
+    padding: 5px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  }
+
+  .bfw-update-release-btn:hover {
+    color: #a6adc8;
+    border-color: #45475a;
+  }
 `;
