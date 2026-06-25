@@ -539,18 +539,19 @@ export function getWeekStats() {
 }
 
 /**
- * Get daily study duration for the last N days (for chart visualization).
- * Returns an array of { date, duration, label } ordered from oldest to newest.
+ * Get daily study data for the last N days (for chart visualization).
+ * Returns an array of { date, duration, lessons, label } ordered from oldest to newest.
  *
  * @param {number} [days=7] - Number of days to include
- * @returns {Array<{date: string, duration: number, label: string}>}
+ * @returns {Array<{date: string, duration: number, lessons: number, label: string}>}
  */
 export function getDailyTrendData(days = 7) {
   const now = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
 
-  // Build a map of date -> total duration (in minutes)
+  // Build maps of date -> total duration (minutes) and lessons completed
   const dailyMap = new Map();
+  const lessonsMap = new Map();
 
   // Initialize all days with 0
   for (let i = days - 1; i >= 0; i--) {
@@ -558,9 +559,10 @@ export function getDailyTrendData(days = 7) {
     d.setHours(0, 0, 0, 0);
     const key = formatDate(d.getTime());
     dailyMap.set(key, 0);
+    lessonsMap.set(key, 0);
   }
 
-  // Aggregate session durations by date
+  // Aggregate session data by date
   progressData.sessions.forEach(s => {
     if (!s.endTime) return;
     const sessionDate = new Date(s.endTime);
@@ -568,6 +570,7 @@ export function getDailyTrendData(days = 7) {
     const key = formatDate(sessionDate.getTime());
     if (dailyMap.has(key)) {
       dailyMap.set(key, dailyMap.get(key) + Math.round((s.duration || 0) / 60));
+      lessonsMap.set(key, lessonsMap.get(key) + (s.lessonsCompleted || 0));
     }
   });
 
@@ -582,6 +585,7 @@ export function getDailyTrendData(days = 7) {
     result.push({
       date: key,
       duration: dailyMap.get(key) || 0,
+      lessons: lessonsMap.get(key) || 0,
       label: days <= 7 ? dayOfWeek : monthDay,
     });
   }
@@ -710,3 +714,4 @@ export function exportProgress() {
 export function getProgressData() {
   return progressData;
 }
+

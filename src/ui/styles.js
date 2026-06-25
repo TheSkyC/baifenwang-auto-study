@@ -1470,6 +1470,33 @@ export const STYLES = `
 
   /* ---- Weekly trend chart ---- */
 
+  .bfw-trend-legend {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 6px;
+    padding-left: 2px;
+  }
+
+  .bfw-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    color: #a6adc8;
+  }
+
+  .bfw-legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1.5px solid;
+    background: #1e1e2e;
+    flex-shrink: 0;
+  }
+
+  .bfw-legend-dot-blue  { border-color: #89b4fa; }
+  .bfw-legend-dot-green { border-color: #a6e3a1; }
+
   .bfw-trend-chart {
     position: relative;
     background: linear-gradient(135deg, rgba(49, 50, 68, 0.4) 0%, rgba(40, 40, 61, 0.5) 100%);
@@ -1486,7 +1513,7 @@ export const STYLES = `
     left: 0;
     right: 0;
     height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(137, 180, 250, 0.4), transparent);
+    background: linear-gradient(90deg, transparent, rgba(137, 180, 250, 0.4), rgba(166, 227, 161, 0.4), transparent);
   }
 
   #bfw-trend-canvas {

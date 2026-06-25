@@ -1201,18 +1201,19 @@
   }
 
   /**
-   * Get daily study duration for the last N days (for chart visualization).
-   * Returns an array of { date, duration, label } ordered from oldest to newest.
+   * Get daily study data for the last N days (for chart visualization).
+   * Returns an array of { date, duration, lessons, label } ordered from oldest to newest.
    *
    * @param {number} [days=7] - Number of days to include
-   * @returns {Array<{date: string, duration: number, label: string}>}
+   * @returns {Array<{date: string, duration: number, lessons: number, label: string}>}
    */
   function getDailyTrendData(days = 7) {
     const now = Date.now();
     const dayMs = 24 * 60 * 60 * 1000;
 
-    // Build a map of date -> total duration (in minutes)
+    // Build maps of date -> total duration (minutes) and lessons completed
     const dailyMap = new Map();
+    const lessonsMap = new Map();
 
     // Initialize all days with 0
     for (let i = days - 1; i >= 0; i--) {
@@ -1220,9 +1221,10 @@
       d.setHours(0, 0, 0, 0);
       const key = formatDate(d.getTime());
       dailyMap.set(key, 0);
+      lessonsMap.set(key, 0);
     }
 
-    // Aggregate session durations by date
+    // Aggregate session data by date
     progressData.sessions.forEach(s => {
       if (!s.endTime) return;
       const sessionDate = new Date(s.endTime);
@@ -1230,6 +1232,7 @@
       const key = formatDate(sessionDate.getTime());
       if (dailyMap.has(key)) {
         dailyMap.set(key, dailyMap.get(key) + Math.round((s.duration || 0) / 60));
+        lessonsMap.set(key, lessonsMap.get(key) + (s.lessonsCompleted || 0));
       }
     });
 
@@ -1244,6 +1247,7 @@
       result.push({
         date: key,
         duration: dailyMap.get(key) || 0,
+        lessons: lessonsMap.get(key) || 0,
         label: days <= 7 ? dayOfWeek : monthDay,
       });
     }
@@ -4359,6 +4363,33 @@
 
   /* ---- Weekly trend chart ---- */
 
+  .bfw-trend-legend {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 6px;
+    padding-left: 2px;
+  }
+
+  .bfw-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    color: #a6adc8;
+  }
+
+  .bfw-legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1.5px solid;
+    background: #1e1e2e;
+    flex-shrink: 0;
+  }
+
+  .bfw-legend-dot-blue  { border-color: #89b4fa; }
+  .bfw-legend-dot-green { border-color: #a6e3a1; }
+
   .bfw-trend-chart {
     position: relative;
     background: linear-gradient(135deg, rgba(49, 50, 68, 0.4) 0%, rgba(40, 40, 61, 0.5) 100%);
@@ -4375,7 +4406,7 @@
     left: 0;
     right: 0;
     height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(137, 180, 250, 0.4), transparent);
+    background: linear-gradient(90deg, transparent, rgba(137, 180, 250, 0.4), rgba(166, 227, 161, 0.4), transparent);
   }
 
   #bfw-trend-canvas {
@@ -6546,6 +6577,10 @@
       <!-- Weekly trend chart -->
       <div class="bfw-stats-group">
         <div class="bfw-stats-group-title">学习趋势</div>
+        <div class="bfw-trend-legend">
+          <span class="bfw-legend-item"><span class="bfw-legend-dot bfw-legend-dot-blue"></span>学习时长</span>
+          <span class="bfw-legend-item"><span class="bfw-legend-dot bfw-legend-dot-green"></span>学习课程</span>
+        </div>
         <div class="bfw-trend-chart" id="bfw-trend-chart">
           <canvas id="bfw-trend-canvas"></canvas>
         </div>
@@ -6695,7 +6730,7 @@
 
   /**
    * Draw the weekly trend chart on canvas.
-   * Uses a smooth curve with gradient fill and animated dots.
+   * Dual-line chart: study duration (blue, left axis) and lessons completed (green, right axis).
    *
    * @param {HTMLElement} panel
    */
@@ -6706,7 +6741,7 @@
     const data = getDailyTrendData(7);
 
     // Skip redraw if data hasn't changed (optimization for frequent refreshStats calls)
-    const dataKey = JSON.stringify(data.map(d => d.duration));
+    const dataKey = JSON.stringify(data.map(d => [d.duration, d.lessons]));
     if (_lastChartDataKey === dataKey) return;
     _lastChartDataKey = dataKey;
 
@@ -6726,91 +6761,211 @@
 
     const width = cssWidth;
     const height = 140;
-    const padding = { top: 20, right: 24, bottom: 30, left: 10 };
+    const padding = { top: 18, right: 14, bottom: 30, left: 14 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
+    const baselineY = height - padding.bottom;
 
     // Clear canvas
     ctx.clearRect(0, 0, width, height);
 
-    // Find max value for scaling (handle empty data explicitly)
-    const maxDuration = data.length > 0
-      ? Math.max(...data.map(d => d.duration), 1)
-      : 1;
+    if (data.length === 0) return;
 
-    // Calculate positions
-    const points = data.map((d, i) => ({
+    // Find max values for scaling (handle all-zero gracefully)
+    const maxDuration = Math.max(...data.map(d => d.duration), 1);
+    const maxLessons = Math.max(...data.map(d => d.lessons), 1);
+
+    // Calculate point positions for both series
+    const durationPoints = data.map((d, i) => ({
       x: padding.left + (chartWidth / (data.length - 1)) * i,
       y: padding.top + chartHeight - (d.duration / maxDuration) * chartHeight,
-      duration: d.duration,
+      value: d.duration,
       label: d.label,
     }));
 
-    // Draw gradient fill area
-    const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
-    gradient.addColorStop(0, 'rgba(137, 180, 250, 0.25)');
-    gradient.addColorStop(0.5, 'rgba(116, 199, 236, 0.15)');
-    gradient.addColorStop(1, 'rgba(148, 226, 213, 0.05)');
+    const lessonsPoints = data.map((d, i) => ({
+      x: padding.left + (chartWidth / (data.length - 1)) * i,
+      y: padding.top + chartHeight - (d.lessons / maxLessons) * chartHeight,
+      value: d.lessons,
+      label: d.label,
+    }));
 
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, height - padding.bottom);
-    points.forEach((p, i) => {
-      if (i === 0) {
-        ctx.lineTo(p.x, p.y);
-      } else {
-        // Smooth curve using quadratic bezier
-        const prev = points[i - 1];
-        const cpX = (prev.x + p.x) / 2;
-        ctx.quadraticCurveTo(cpX, prev.y, p.x, p.y);
+    // Monotone cubic interpolation (Fritsch-Carlson): smooth curves that never overshoot.
+    // Computes tangents that preserve local monotonicity, then converts to bezier segments.
+    function monotoneCubicPath(pts) {
+      const n = pts.length;
+      if (n < 2) return [];
+      // Secant slopes between adjacent points
+      const d = [];
+      for (let i = 0; i < n - 1; i++) {
+        const dx = pts[i + 1].x - pts[i].x;
+        d.push(dx === 0 ? 0 : (pts[i + 1].y - pts[i].y) / dx);
       }
-    });
-    ctx.lineTo(points[points.length - 1].x, height - padding.bottom);
-    ctx.closePath();
-    ctx.fillStyle = gradient;
-    ctx.fill();
-
-    // Draw line
-    ctx.beginPath();
-    points.forEach((p, i) => {
-      if (i === 0) {
-        ctx.moveTo(p.x, p.y);
-      } else {
-        const prev = points[i - 1];
-        const cpX = (prev.x + p.x) / 2;
-        ctx.quadraticCurveTo(cpX, prev.y, p.x, p.y);
+      // Initial tangent at each point: average of neighboring secants
+      const m = new Array(n);
+      m[0] = d[0];
+      m[n - 1] = d[n - 2];
+      for (let i = 1; i < n - 1; i++) m[i] = (d[i - 1] + d[i]) / 2;
+      // Fritsch-Carlson monotonicity constraint
+      for (let i = 0; i < n - 1; i++) {
+        if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+        const a = m[i] / d[i], b = m[i + 1] / d[i];
+        const mag = a * a + b * b;
+        if (mag > 9) { const t = 3 / Math.sqrt(mag); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
       }
-    });
-    ctx.strokeStyle = '#89b4fa';
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.stroke();
+      // Return bezier segments
+      const segs = [];
+      for (let i = 0; i < n - 1; i++) {
+        const h = pts[i + 1].x - pts[i].x;
+        segs.push([
+          pts[i].x + h / 3,        pts[i].y + m[i] * h / 3,
+          pts[i + 1].x - h / 3,    pts[i + 1].y - m[i + 1] * h / 3,
+          pts[i + 1].x,             pts[i + 1].y,
+        ]);
+      }
+      return segs;
+    }
 
-    // Draw dots and labels
-    points.forEach((p, i) => {
-      // Dot
+    // Helper: draw a smooth area-fill + stroke line for a series
+    function drawLineSeries(points, strokeColor, fillGradient) {
+      const segs = monotoneCubicPath(points);
+
+      // Fill area under curve
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-      ctx.fillStyle = '#1e1e2e';
+      ctx.moveTo(points[0].x, baselineY);
+      ctx.lineTo(points[0].x, points[0].y);
+      segs.forEach(s => ctx.bezierCurveTo(...s));
+      ctx.lineTo(points[points.length - 1].x, baselineY);
+      ctx.closePath();
+      ctx.fillStyle = fillGradient;
       ctx.fill();
-      ctx.strokeStyle = p.duration > 0 ? '#89b4fa' : '#45475a';
-      ctx.lineWidth = 2;
-      ctx.stroke();
 
-      // Label (day name)
+      // Stroke the curve
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      segs.forEach(s => ctx.bezierCurveTo(...s));
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    }
+
+    // Duration gradient (blue → teal)
+    const durationGradient = ctx.createLinearGradient(0, padding.top, 0, baselineY);
+    durationGradient.addColorStop(0, 'rgba(137, 180, 250, 0.25)');
+    durationGradient.addColorStop(0.5, 'rgba(116, 199, 236, 0.15)');
+    durationGradient.addColorStop(1, 'rgba(148, 226, 213, 0.05)');
+
+    // Lessons gradient (green)
+    const lessonsGradient = ctx.createLinearGradient(0, padding.top, 0, baselineY);
+    lessonsGradient.addColorStop(0, 'rgba(166, 227, 161, 0.22)');
+    lessonsGradient.addColorStop(0.5, 'rgba(148, 226, 190, 0.12)');
+    lessonsGradient.addColorStop(1, 'rgba(148, 226, 213, 0.03)');
+
+    // Draw lessons area first (behind duration), then duration on top
+    drawLineSeries(lessonsPoints, '#a6e3a1', lessonsGradient);
+    drawLineSeries(durationPoints, '#89b4fa', durationGradient);
+
+    // Draw dots only (no labels)
+    function drawDots(points, color) {
+      points.forEach((p) => {
+        const active = p.value > 0;
+        if (active) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+          ctx.fillStyle = color.replace(')', ', 0.15)').replace('rgb', 'rgba');
+          ctx.fill();
+        }
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#1e1e2e';
+        ctx.fill();
+        ctx.strokeStyle = active ? color : '#45475a';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+    }
+
+    // Draw labels for both series together per column, resolving vertical collisions.
+    // The series whose dot is higher (smaller Y) gets its label above; the other below.
+    // If both labels would still be within MIN_GAP pixels of each other, push them apart.
+    function drawDualLabels(dPts, lPts, dFmt, lFmt) {
+      const MIN_GAP = 16; // px between two labels
+      const ABOVE_OFFSET = -10;
+      const BELOW_OFFSET = 18;
+
+      ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.textAlign = 'center';
+
+      dPts.forEach((dp, i) => {
+        const lp = lPts[i];
+        const dActive = dp.value > 0;
+        const lActive = lp.value > 0;
+
+        if (!dActive && !lActive) return;
+
+        if (dActive && !lActive) {
+          // Only duration label — always above its dot
+          const y = Math.max(14, Math.min(dp.y + ABOVE_OFFSET, baselineY - 2));
+          ctx.fillStyle = '#89b4fa';
+          ctx.fillText(dFmt(dp.value), dp.x, y);
+          return;
+        }
+
+        if (!dActive && lActive) {
+          // Only lessons label — always below its dot
+          const y = Math.max(14, Math.min(lp.y + BELOW_OFFSET, baselineY - 2));
+          ctx.fillStyle = '#a6e3a1';
+          ctx.fillText(lFmt(lp.value), lp.x, y);
+          return;
+        }
+
+        // Both active: the higher dot (smaller Y) gets label above, lower dot gets label below
+        let dyAbove, dyBelow, colorAbove, colorBelow, textAbove, textBelow, xAbove, xBelow;
+        if (dp.y <= lp.y) {
+          // duration is higher
+          dyAbove = dp.y + ABOVE_OFFSET;
+          dyBelow = lp.y + BELOW_OFFSET;
+          colorAbove = '#89b4fa'; textAbove = dFmt(dp.value); xAbove = dp.x;
+          colorBelow = '#a6e3a1'; textBelow = lFmt(lp.value); xBelow = lp.x;
+        } else {
+          // lessons is higher
+          dyAbove = lp.y + ABOVE_OFFSET;
+          dyBelow = dp.y + BELOW_OFFSET;
+          colorAbove = '#a6e3a1'; textAbove = lFmt(lp.value); xAbove = lp.x;
+          colorBelow = '#89b4fa'; textBelow = dFmt(dp.value); xBelow = dp.x;
+        }
+
+        // Clamp to chart bounds first
+        dyAbove = Math.max(14, dyAbove);
+        dyBelow = Math.min(dyBelow, baselineY - 2);
+
+        // If the two labels are still too close, push them apart symmetrically
+        const gap = dyBelow - dyAbove;
+        if (gap < MIN_GAP) {
+          const nudge = (MIN_GAP - gap) / 2;
+          dyAbove = Math.max(14, dyAbove - nudge);
+          dyBelow = Math.min(dyBelow + nudge, baselineY - 2);
+        }
+
+        ctx.fillStyle = colorAbove;
+        ctx.fillText(textAbove, xAbove, dyAbove);
+        ctx.fillStyle = colorBelow;
+        ctx.fillText(textBelow, xBelow, dyBelow);
+      });
+    }
+
+    drawDots(durationPoints, '#89b4fa');
+    drawDots(lessonsPoints, '#a6e3a1');
+    drawDualLabels(durationPoints, lessonsPoints, v => v >= 60 ? `${Math.round(v / 60)}h` : `${v}m`, v => `${v}节`);
+
+    // Day labels (bottom axis) — draw once shared
+    durationPoints.forEach((p) => {
       ctx.fillStyle = '#a6adc8';
       ctx.font = '10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(p.label, p.x, height - padding.bottom + 18);
-
-      // Duration value (only if > 0)
-      if (p.duration > 0) {
-        ctx.fillStyle = '#cdd6f4';
-        ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.textAlign = 'center';
-        const durationText = p.duration >= 60 ? `${Math.round(p.duration / 60)}h` : `${p.duration}m`;
-        ctx.fillText(durationText, p.x, p.y - 10);
-      }
+      ctx.fillText(p.label, p.x, baselineY + 18);
     });
   }
 
