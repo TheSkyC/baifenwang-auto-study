@@ -1,22 +1,22 @@
 // ==UserScript==
-// @name         百分网自动刷课助手
-// @description  自动完成百分网人脸验证与课程播放，支持防切屏检测与人脸图片管理
-// @namespace    https://greasyfork.org/baifenwang-auto-study
-// @version      1.0.0
-// @author       TheSkyC
-// @license      MIT
-// @homepageURL  https://github.com/TheSkyC/baifenwang-auto-study
-// @supportURL   https://github.com/TheSkyC/baifenwang-auto-study/issues
-// @updateURL    https://raw.githubusercontent.com/TheSkyC/baifenwang-auto-study/master/dist/baifenwang-auto-study.user.js
-// @downloadURL  https://update.tarxf.com/latest.user.js
-// @match        *://*.tj.100.wang/*
-// @run-at       document-start
-// @compatible   Tampermonkey
-// @compatible   Greasemonkey
-// @compatible   Violentmonkey
-// @compatible   ScriptCat
-// @compatible   AdGuard
-// @grant        none
+// @name           百分网自动刷课助手
+// @description    自动完成百分网人脸验证与课程播放，支持防切屏检测与人脸图片管理
+// @namespace      https://greasyfork.org/baifenwang-auto-study
+// @version        1.0.0
+// @author         TheSkyC
+// @license        MIT
+// @homepageURL    https://github.com/TheSkyC/baifenwang-auto-study
+// @supportURL     https://github.com/TheSkyC/baifenwang-auto-study/issues
+// @updateURL      https://raw.githubusercontent.com/TheSkyC/baifenwang-auto-study/master/dist/baifenwang-auto-study.user.js
+// @downloadURL    https://update.tarxf.com/latest.user.js
+// @match          *://*.tj.100.wang/*
+// @run-at         document-start
+// @compatible     Tampermonkey
+// @compatible     Greasemonkey
+// @compatible     Violentmonkey
+// @compatible     ScriptCat
+// @compatible     AdGuard
+// @grant          none
 // ==/UserScript==
 
 (function () {

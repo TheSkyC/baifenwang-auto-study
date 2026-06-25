@@ -1,15 +1,16 @@
 /**
- * @file Rollup config for Greasy Fork submission — NO minification.
- * Greasy Fork rules require readable, non-obfuscated code.
+ * @file Rollup config for minified production build.
+ * Uses terser to compress output while keeping the userscript header intact.
  */
 import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
+import terser from '@rollup/plugin-terser';
 import metablock from 'rollup-plugin-userscript-metablock';
 
 export default {
   input: 'src/index.js',
   output: {
-    file: 'dist/baifenwang-auto-study.user.js',
+    file: 'dist/baifenwang-auto-study.min.user.js',
     format: 'iife',
     name: 'BaifenwangAutoStudy',
     sourcemap: false,
@@ -17,7 +18,12 @@ export default {
   plugins: [
     resolve(),
     commonjs(),
-    // NO terser — Greasy Fork prohibits minified/obfuscated code
+    // terser runs BEFORE metablock so the header stays readable
+    terser({
+      format: {
+        comments: false,
+      },
+    }),
     metablock({
       file: './metablock.json',
       override: {

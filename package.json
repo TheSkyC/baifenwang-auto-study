@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "scripts": {
     "build": "rollup -c",
-    "build:plain": "rollup -c rollup.greasyfork.config.js",
+    "build:min": "rollup -c rollup.min.config.js",
     "dev": "rollup -c -w",
     "bump:patch": "node scripts/bump-version.js patch",
     "bump:minor": "node scripts/bump-version.js minor",

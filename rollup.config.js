@@ -25,12 +25,18 @@ export default {
       },
     }),
 
-    // Post-process metablock: add one extra space between key and value
-    // so values align at the conventional column width.
+    // Align metablock values at a consistent column (Greasy Fork convention).
     {
-      name: 'fix-metablock-spacing',
+      name: 'align-metablock',
       renderChunk(code) {
-        return code.replace(/^(\/\/ @\S+)( +)(\S)/gm, '$1 $2$3');
+        const VALUE_COL = 19; // values align at this 0-based column
+        return code.replace(
+          /^(\/\/ @\S+)( +)(\S)/gm,
+          (_match, key, _spaces, value) => {
+            const pad = VALUE_COL - key.length;
+            return key + ' '.repeat(Math.max(1, pad)) + value;
+          },
+        );
       },
     },
   ],

@@ -29,7 +29,7 @@ jobs:
         run: npm ci
 
       - name: Build
-        run: npm run build:plain
+        run: npm run build
 
       - name: Git commit
         id: commit
