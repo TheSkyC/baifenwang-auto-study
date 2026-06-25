@@ -1,0 +1,119 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/baifenwang-auto-study.user.js
+          generate_release_notes: false
+          body: |
+            ## 安装
+
+            直接点击下方链接通过 Tampermonkey / Violentmonkey 安装：
+
+            👉 [安装脚本](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/baifenwang-auto-study.user.js)
+
+      # ── Upload to R2 ──────────────────────────────────────────────────────
+      - name: Upload versioned artifact to R2
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >
+            r2 object put
+            baifenwang-releases/${{ github.ref_name }}/baifenwang-auto-study.user.js
+            --file dist/baifenwang-auto-study.user.js
+            --content-type "application/javascript; charset=utf-8"
+
+      - name: Update latest pointer in R2
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >
+            r2 object put
+            baifenwang-releases/latest/baifenwang-auto-study.user.js
+            --file dist/baifenwang-auto-study.user.js
+            --content-type "application/javascript; charset=utf-8"
+
+      # ── Append new release to the update-api catalog ──────────────────────
+      - name: Checkout update-api repo
+        uses: actions/checkout@v4
+        with:
+          repository: TheSkyC/baifenwang-update-api
+          token: ${{ secrets.UPDATE_API_TOKEN }}
+          path: update-api
+
+      - name: Compute SHA-256 and file size
+        id: artifact
+        run: |
+          sha256=$(sha256sum dist/baifenwang-auto-study.user.js | awk '{print $1}')
+          size=$(stat -c%s dist/baifenwang-auto-study.user.js)
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          echo "size=$size"     >> "$GITHUB_OUTPUT"
+
+      - name: Inject new release into catalog
+        env:
+          VERSION:        ${{ steps.version.outputs.version }}
+          TAG:            ${{ github.ref_name }}
+          SHA256:         ${{ steps.artifact.outputs.sha256 }}
+          SIZE:           ${{ steps.artifact.outputs.size }}
+          REPO:           ${{ github.repository }}
+          PUBLISHED:      ${{ github.event.head_commit.timestamp }}
+          CDN_BASE:       ${{ secrets.CDN_BASE }}
+          CHANGELOG_PATH: ${{ github.workspace }}/CHANGELOG.md
+        run: node update-api/scripts/inject-release.mjs
+
+      - name: Push catalog update
+        run: |
+          cd update-api
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git push origin HEAD:main
+
+      - name: Deploy update-api to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: update-api
+          command: deploy
+
+      # ── Commit dist back to master (keeps updateURL on GitHub raw in sync) ──
+      - name: Commit dist to master
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin master
+          git checkout master
+          git add dist/baifenwang-auto-study.user.js
+          git commit -m "chore(dist): update dist for ${{ github.ref_name }}" || echo "nothing to commit"
+          git push origin master
