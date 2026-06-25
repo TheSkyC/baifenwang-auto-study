@@ -57,8 +57,23 @@ export const AUTO_CONFIG = {
   /** Minimum wait after clicking "开始对比" before handleCompareFailRecovery
    *  may fire.  The server needs time to respond; without this cooldown any
    *  DOM mutation during the server round-trip is misidentified as a failure
-   *  because the page still shows both "重新拍照" and "开始对比" buttons. */
-  COMPARE_COOLDOWN_MS: 4000,
+   *  because the page still shows both "重新拍照" and "开始对比" buttons.
+   *
+   *  Fixed per attempt — server response time doesn't change between retries.
+   *  The retry gap (COMPARE_RETRY_GAP_BASE_MS) handles pacing between attempts;
+   *  this only covers the ambiguous "still waiting or already rejected?" window. */
+  COMPARE_COOLDOWN_MS: 8000,
+  /** Base retry gap after a confirmed compare failure, before the retake cycle
+   *  begins (ms).  Grows exponentially: base × 2^(compareAttempts-1), capped by
+   *  COMPARE_RETRY_GAP_MAX_MS.
+   *
+   *  Separate from COMPARE_COOLDOWN_MS — the cooldown waits for the server to
+   *  respond; the gap paces the cycle after failure is confirmed.  Using a
+   *  shorter base with a moderate cap keeps the overall pace brisk even when
+   *  verification fails several times in a row. */
+  COMPARE_RETRY_GAP_BASE_MS: 2000,
+  /** Maximum retry gap cap for exponential backoff (ms). */
+  COMPARE_RETRY_GAP_MAX_MS: 15000,
   /** Delay after clicking retry button before camera-open click (ms).
    *  Used by onRetry() as a bridge between retry and the normal pipeline. */
   RETRY_CAMERA_DELAY_MS: 800,

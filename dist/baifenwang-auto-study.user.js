@@ -249,8 +249,23 @@
     /** Minimum wait after clicking "开始对比" before handleCompareFailRecovery
      *  may fire.  The server needs time to respond; without this cooldown any
      *  DOM mutation during the server round-trip is misidentified as a failure
-     *  because the page still shows both "重新拍照" and "开始对比" buttons. */
-    COMPARE_COOLDOWN_MS: 4000,
+     *  because the page still shows both "重新拍照" and "开始对比" buttons.
+     *
+     *  Fixed per attempt — server response time doesn't change between retries.
+     *  The retry gap (COMPARE_RETRY_GAP_BASE_MS) handles pacing between attempts;
+     *  this only covers the ambiguous "still waiting or already rejected?" window. */
+    COMPARE_COOLDOWN_MS: 8000,
+    /** Base retry gap after a confirmed compare failure, before the retake cycle
+     *  begins (ms).  Grows exponentially: base × 2^(compareAttempts-1), capped by
+     *  COMPARE_RETRY_GAP_MAX_MS.
+     *
+     *  Separate from COMPARE_COOLDOWN_MS — the cooldown waits for the server to
+     *  respond; the gap paces the cycle after failure is confirmed.  Using a
+     *  shorter base with a moderate cap keeps the overall pace brisk even when
+     *  verification fails several times in a row. */
+    COMPARE_RETRY_GAP_BASE_MS: 2000,
+    /** Maximum retry gap cap for exponential backoff (ms). */
+    COMPARE_RETRY_GAP_MAX_MS: 15000,
     /** Delay after clicking retry button before camera-open click (ms).
      *  Used by onRetry() as a bridge between retry and the normal pipeline. */
     RETRY_CAMERA_DELAY_MS: 800,
@@ -7644,8 +7659,9 @@
       if (!result.hasUpdate) {
         // Up to date — show subtle version tag, no pulse
         btn.className = 'bfw-update-btn';
-        btn.title = `已是最新版本 v${result.latestVersion}`;
+        btn.title = `已是最新版本 v${result.latestVersion}，点击重新检测`;
         btn.innerHTML = icons.tag;
+        btn.onclick = (e) => { e.stopPropagation(); triggerRecheck(); };
         return;
       }
 
@@ -7681,12 +7697,6 @@
       invalidateUpdateCache();
       checkForUpdate(onResult, { force: true, delay: 0, onError });
     };
-
-    // Right-click / long-press to force re-check
-    btn.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      triggerRecheck();
-    });
 
     checkForUpdate(onResult, { onError });
 
@@ -8632,8 +8642,12 @@
    * watchdog forces a reset.  Catches edge cases where the DOM stops
    * updating (slow server, frozen page) and the MutationObserver stays
    * silent — the state machine would otherwise be stuck forever.
+   *
+   * Must exceed COMPARE_COOLDOWN_MS + COMPARE_RETRY_GAP_MAX_MS + pipeline
+   * delays (~35s worst case) so the cooldown and retry-gap mechanisms get
+   * a fair chance before the watchdog intervenes.
    */
-  const WATCHDOG_TIMEOUT_MS = 10000;
+  const WATCHDOG_TIMEOUT_MS = 40000;
 
   /**
    * Sentinel that prevents duplicate post-cooldown re-check timers.
@@ -8653,7 +8667,8 @@
   /**
    * Jittered cooldown duration (ms) for the current compare cycle.
    * Captured once at compare-submit time so the cooldown is stable for
-   * the entire server-response window.  Varies per attempt.
+   * the entire server-response window.  Fixed per attempt — server
+   * response time doesn't change between retries.
    *
    * Initialised from AUTO_CONFIG at module load — assumes {@link AUTO_CONFIG}
    * is available at this point (imported at the top of the module).
@@ -8861,6 +8876,24 @@
   }
 
   /**
+   * Calculate the pacing gap after a confirmed compare failure.
+   * Grows exponentially: COMPARE_RETRY_GAP_BASE_MS × 2^(compareAttempts-1),
+   * capped at COMPARE_RETRY_GAP_MAX_MS.
+   *
+   * Separate from COMPARE_COOLDOWN_MS — the cooldown only waits for the
+   * server to respond; this gap paces retry cycles after failure is confirmed.
+   *
+   * Uses jitterMsFloor (only lengthens) so the gap never falls below the
+   * intended minimum.
+   *
+   * @returns {number} milliseconds
+   */
+  function getCompareRetryGapMs() {
+    const gap = AUTO_CONFIG.COMPARE_RETRY_GAP_BASE_MS * Math.pow(2, compareAttempts - 1);
+    return jitterMsFloor(Math.min(gap, AUTO_CONFIG.COMPARE_RETRY_GAP_MAX_MS), 0.25);
+  }
+
+  /**
    * Handle retry exhaustion — give up and stop the auto-processor.
    */
   function exhaustRetries() {
@@ -8994,6 +9027,12 @@
   function clickCompareButton() {
     if (sequenceState !== 'photo_taking' && sequenceState !== 'photo_taken') return;
 
+    // Refuse to submit another comparison when the retry limit is exhausted.
+    // This guard catches callers outside the normal checkAndStartSequence flow
+    // (e.g. clickCameraButton → clickCompareButton bypass, or the autoCompare
+    // toggle listener) that could otherwise trigger a compare after exhaustion.
+    if (compareAttempts >= AUTO_CONFIG.RETRY_MAX_ATTEMPTS) return;
+
     const modal = document.querySelector(FACE_UI_SELECTORS.MODAL);
     const rootNode = modal || document;
 
@@ -9111,6 +9150,7 @@
       warn(`Compare retry limit reached (${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}). Stopping.`);
       appendLog(`对比重试次数已达上限 (${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次)，请手动操作`);
       setStatus(false, '已停止 — 对比重试次数已达上限');
+      transitionState('photo_taken'); // terminal state — blocks Watchdog and new sequences
       return true; // modal is present; caller should not start a new sequence
     }
 
@@ -9137,8 +9177,9 @@
       }
 
       compareAttempts++;
-      info(`Verification failed — retry ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}: clicking retake, then photo`);
-      appendLog(`验证未通过，自动重试第 ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次`);
+      const gapMs = getCompareRetryGapMs();
+      info(`Verification failed — retry ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}: waiting ${(gapMs / 1000).toFixed(1)}s before retake`);
+      appendLog(`验证未通过，${(gapMs / 1000).toFixed(1)}秒后自动重试第 ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次`);
 
       // Record failure for the last picked image
       recordLastPickResult(false);
@@ -9148,12 +9189,23 @@
       sequenceTimers = [];
       compareRetries = 0;
 
-      clickElement(retakeBtn, '重新拍照');
-
-      // After retake the camera re-opens → go through the normal pipeline
+      // Transition now so handleCompareFailRecovery doesn't re-enter while
+      // the gap timer runs.  state=camera_opening is semantically correct:
+      // once the gap expires we'll click retake, which re-opens the camera.
       transitionState('camera_opening');
-      const timer = setTimeout(() => clickPhotoButton(), jitterMs(AUTO_CONFIG.CAMERA_OPEN_DELAY_MS, 0.35));
-      sequenceTimers.push(timer);
+
+      const gapTimer = setTimeout(() => {
+        const curModal = document.querySelector(FACE_UI_SELECTORS.MODAL);
+        if (!curModal) return;
+        const retake = findButton(FACE_UI_SELECTORS.PHOTO_BTN, BTN_TEXT.RETAKE, curModal);
+        if (!retake) return;
+        clickElement(retake, '重新拍照');
+
+        // After retake the camera re-opens → go through the normal pipeline
+        const photoTimer = setTimeout(() => clickPhotoButton(), jitterMs(AUTO_CONFIG.CAMERA_OPEN_DELAY_MS, 0.35));
+        sequenceTimers.push(photoTimer);
+      }, gapMs);
+      sequenceTimers.push(gapTimer);
       return true;
     }
 
@@ -9166,10 +9218,20 @@
       }
 
       compareAttempts++;
-      info(`Verification failed — retry ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}: compare button visible directly`);
-      appendLog(`验证未通过，自动重试第 ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次（直接对比）`);
+      const gapMs = getCompareRetryGapMs();
+      info(`Verification failed — retry ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}: waiting ${(gapMs / 1000).toFixed(1)}s before direct compare`);
+      appendLog(`验证未通过，${(gapMs / 1000).toFixed(1)}秒后直接对比重试第 ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次`);
+
+      // Record failure for the last picked image
+      recordLastPickResult(false);
+
+      // Transition now to prevent re-entry while the gap timer runs
       transitionState('photo_taking');
-      clickCompareButton();
+
+      const gapTimer = setTimeout(() => {
+        clickCompareButton();
+      }, gapMs);
+      sequenceTimers.push(gapTimer);
       return true;
     }
 
@@ -9263,6 +9325,23 @@
       debug(`  Button: classes="${btn.className}" text="${(btn.textContent || '').trim().substring(0, 30)}"`);
     }
 
+    // ── Early-exit: compare attempts exhausted ──────────────────────────
+    // If we've already tried the maximum number of comparison cycles and
+    // the modal is still present, park in a terminal state.  This prevents
+    // the Watchdog → startModalSequence → clickCompare → exhaustion → repeat
+    // infinite loop that otherwise occurs when the server is slow to respond
+    // and the state machine exhausts its compare retries before the server
+    // returns a result.
+    if (compareAttempts >= AUTO_CONFIG.RETRY_MAX_ATTEMPTS) {
+      if (sequenceState !== 'photo_taken') {
+        warn('Check: compare retry limit exhausted — parking in terminal state');
+        transitionState('photo_taken');
+        appendLog('对比重试已达上限，已暂停 — 请手动操作');
+        setStatus(false, '已暂停 — 对比重试已达上限');
+      }
+      return true;
+    }
+
     // ── Watchdog: detect stuck sequence states ──────────────────────────
     // If the state machine has been parked in the same non-idle state for
     // longer than WATCHDOG_TIMEOUT_MS, something went wrong (e.g. the DOM
@@ -9277,6 +9356,16 @@
       warn(`Watchdog: state "${sequenceState}" stuck for ${Date.now() - _stateEnteredAt}ms — forcing reset`);
       appendLog('自动操作卡住超时，正在重置');
       clearSequence();
+      // Guard: if compare attempts are already exhausted, parking in photo_taken
+      // prevents the Watchdog from triggering new sequences — which would just
+      // be blocked again, creating an infinite restart loop.
+      if (compareAttempts >= AUTO_CONFIG.RETRY_MAX_ATTEMPTS) {
+        warn('Compare retry limit exhausted — parking in terminal state');
+        transitionState('photo_taken');
+        appendLog('对比重试已达上限，已暂停 — 请手动操作');
+        setStatus(false, '已暂停 — 对比重试已达上限');
+        return true;
+      }
       // Keep compareAttempts — watchdog fires on transient stalls, not
       // verification failures.  Resetting the counter would allow infinite
       // retry loops when the page is consistently slow.
@@ -9324,6 +9413,18 @@
     //    listener or modal-close should move us out of this state.
     if (sequenceState !== 'idle') return true;
 
+    // 3b. Secondary exhaustion guard — catches the rare case where
+    //     handleCompareFailRecovery Path 3 increments compareAttempts to the
+    //     limit and returns false (letting us fall through to here), or where
+    //     the Watchdog resets state to idle while compareAttempts is exhausted.
+    if (compareAttempts >= AUTO_CONFIG.RETRY_MAX_ATTEMPTS) {
+      warn('Start-sequence blocked: compare retries exhausted');
+      transitionState('photo_taken');
+      appendLog('对比重试已达上限，已暂停 — 请手动操作');
+      setStatus(false, '已暂停 — 对比重试已达上限');
+      return true;
+    }
+
     // 4. Start a fresh sequence (only from idle)
     startModalSequence();
     return true;
@@ -9348,6 +9449,9 @@
 
     // Reset sequence state so we can re-enter the flow
     clearSequence();
+    // Reset the comparison counter — the user explicitly requested a retry,
+    // so their intent is clear and we should allow another full cycle.
+    compareAttempts = 0;
 
     const modal = document.querySelector(FACE_UI_SELECTORS.MODAL);
     const rootNode = modal || document;
@@ -9422,6 +9526,14 @@
         if (mutation.type === 'childList'
             && (mutation.addedNodes.length > 0 || mutation.removedNodes.length > 0)) {
           if (retryExhausted) break;
+
+          // Skip mutations originating from our own UI panel.
+          // Course progress updates (textContent changes on progress bars)
+          // trigger childList mutations that would otherwise be misread as
+          // page activity and spuriously wake the face verification state
+          // machine.  See: shared MutationObserver → refreshCourseProgress
+          // → pushProgress → onTimeUpdate → video element timeupdate event.
+          if (mutation.target.closest && mutation.target.closest('.bfw-panel')) continue;
 
           clearTimeout(debounceTimer);
           const baseDebounce = retryAttempt > 0
@@ -9499,6 +9611,12 @@
   // When autoCompare is toggled ON while paused at photo_taken, resume the flow
   onChange('autoCompare', (val) => {
     if (val && sequenceState === 'photo_taken') {
+      // Respect exhaustion: photo_taken is also used as the terminal state
+      // for exhausted compare retries — don't resume in that case.
+      if (compareAttempts >= AUTO_CONFIG.RETRY_MAX_ATTEMPTS) {
+        warn('autoCompare toggled ON but compare retries exhausted — ignored');
+        return;
+      }
       info('autoCompare toggled ON — resuming comparison');
       appendLog('自动对比已开启 — 继续执行对比');
       setStatus(true, '运行中 — 正在处理人脸验证');
