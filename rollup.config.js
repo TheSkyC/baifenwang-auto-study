@@ -5,7 +5,6 @@
 
 import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
-import terser from '@rollup/plugin-terser';
 import metablock from 'rollup-plugin-userscript-metablock';
 
 export default {
@@ -19,15 +18,6 @@ export default {
   plugins: [
     resolve(),
     commonjs(),
-    terser({
-      compress: {
-        drop_console: false,
-        passes: 2,
-      },
-      format: {
-        comments: false,
-      },
-    }),
     metablock({
       file: './metablock.json',
       override: {
