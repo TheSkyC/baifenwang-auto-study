@@ -15,6 +15,25 @@ import { SCRIPT_VERSION, UPDATE_API_URL } from '../config.js';
 import * as logger from './logger.js';
 import { getStorageAdapter } from './storage-adapter.js';
 
+/**
+ * Compare two semver strings (e.g. "1.2.3").
+ * Returns negative if a < b, zero if equal, positive if a > b.
+ * Missing or non-numeric segments are treated as 0.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function compareSemver(a, b) {
+  const pa = (a ?? '').split('.').map(Number);
+  const pb = (b ?? '').split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const na = Number.isFinite(pa[i]) ? pa[i] : 0;
+    const nb = Number.isFinite(pb[i]) ? pb[i] : 0;
+    if (na !== nb) return na - nb;
+  }
+  return 0;
+}
+
 const CACHE_KEY = 'bfw_update_cache';
 const IGNORE_KEY = 'bfw_ignored_version';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -44,6 +63,11 @@ async function readCache() {
     const parsed = JSON.parse(raw);
     if (!parsed?.checkedAt) return null;
     if (Date.now() - new Date(parsed.checkedAt).getTime() > CACHE_TTL_MS) return null;
+    // If the user has already updated to or past the version that was
+    // flagged as new, discard the stale cache entry.
+    if (parsed.hasUpdate && parsed.latestVersion && compareSemver(SCRIPT_VERSION, parsed.latestVersion) >= 0) {
+      return null;
+    }
     return parsed;
   } catch {
     return null;
