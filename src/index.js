@@ -6,14 +6,14 @@
 import { SCRIPT_NAME, SCRIPT_VERSION } from './config.js';
 import { debug, info, warn, error } from './utils/logger.js';
 import { loadSettings } from './settings.js';        // persistent settings loader
-import { loadProgressTracker } from './utils/progress-tracker.js';  // progress history loader
+import { loadProgressTracker, flushSessionSync } from './utils/progress-tracker.js';  // progress history loader
 import { installVideoInterceptor } from './core/video-interceptor.js';
 import { initVideoOverlay } from './ui/video-overlay.js';
 import { installVisibilityInterceptor, initVisibilityInterceptorSettings } from './core/visibility-interceptor.js';
 import { buildUI, appendLog, setStatus } from './ui/builder.js';
 import { startAutoProcessor } from './auto/processor.js';
 import './auto/course-processor.js';    // side-effect: registers settings listener
-import { startCourseMonitor, stopCourseMonitor } from './auto/course-processor.js';
+import { startCourseMonitor } from './auto/course-processor.js';
 import { initPool } from './pool/image-pool.js';
 
 /**
@@ -126,15 +126,15 @@ function bootstrap() {
 
   // ---- Phase 3: register cleanup hooks for session tracking ----
 
-  // End active session when user leaves/refreshes the page
+  // End active session when user leaves/refreshes the page.
+  // Uses synchronous localStorage flush because beforeunload does not wait
+  // for async work — the page may tear down before endSession() completes.
   window.addEventListener('beforeunload', () => {
     try {
-      // stopCourseMonitor is async but beforeunload handlers should not be async
-      // Just call endSession synchronously (best-effort save)
-      stopCourseMonitor();
+      flushSessionSync();
     } catch (e) {
       // Swallow errors in beforeunload to avoid blocking navigation
-      error('Failed to stop course monitor on page unload:', e);
+      error('Failed to flush session on page unload:', e);
     }
   });
 }

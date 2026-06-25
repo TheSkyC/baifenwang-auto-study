@@ -47,8 +47,43 @@ export function updateCourseProgress(data) {
   refreshCourseProgress();
 }
 
+/** Cached last-written DOM values — avoids redundant DOM mutations. */
+const _lastDom = {};
+
+/**
+ * Write textContent only if the value differs from what's already in the DOM.
+ * Returns true if a write actually happened.
+ * @param {Element} el
+ * @param {string} value
+ * @returns {boolean}
+ */
+function setTextIfChanged(el, value) {
+  const key = el.id || el.className;
+  if (_lastDom[key] === value) return false;
+  _lastDom[key] = value;
+  el.textContent = value;
+  return true;
+}
+
+/**
+ * Write a style property only if the value differs from the cached state.
+ * @param {Element} el
+ * @param {string} prop
+ * @param {string} value
+ * @returns {boolean}
+ */
+function setStyleIfChanged(el, prop, value) {
+  const key = `${el.id || el.className}_${prop}`;
+  if (_lastDom[key] === value) return false;
+  _lastDom[key] = value;
+  el.style[prop] = value;
+  return true;
+}
+
 /**
  * Refresh the course progress DOM from cached data.
+ * Skips redundant writes when values haven't changed, avoiding
+ * unnecessary layout recalculations during frequent pushProgress calls.
  */
 export function refreshCourseProgress() {
   if (!panelEl) return;
@@ -71,44 +106,47 @@ export function refreshCourseProgress() {
 
   // ---- Chapter bar (本章) ----
   const chBarFill = panelEl.querySelector('#bfw-course-chbar-fill');
-  if (chBarFill) chBarFill.style.width = `${Math.min(chapPct, 100)}%`;
+  if (chBarFill) setStyleIfChanged(chBarFill, 'width', `${Math.min(chapPct, 100)}%`);
   const chBarPct = panelEl.querySelector('#bfw-course-chbar-pct');
-  if (chBarPct) chBarPct.textContent = d.curChapLessons ? `${chapPct}%` : '';
+  if (chBarPct) setTextIfChanged(chBarPct, d.curChapLessons ? `${chapPct}%` : '');
 
   // ---- Overall bar (总) ----
   const lBarFill = panelEl.querySelector('#bfw-course-lbar-fill');
-  if (lBarFill) lBarFill.style.width = `${Math.min(overallPct, 100)}%`;
+  if (lBarFill) setStyleIfChanged(lBarFill, 'width', `${Math.min(overallPct, 100)}%`);
   const lBarPct = panelEl.querySelector('#bfw-course-lbar-pct');
-  if (lBarPct) lBarPct.textContent = d.totalLessons ? `${overallPct}%` : '';
+  if (lBarPct) setTextIfChanged(lBarPct, d.totalLessons ? `${overallPct}%` : '');
 
   // ---- Count badge ----
   const countEl = panelEl.querySelector('#bfw-course-count');
   if (countEl) {
-    countEl.textContent = d.totalLessons ? `${d.completedLessons}/${d.totalLessons}` : '0/0';
-    countEl.style.color = d.totalLessons > 0 && d.completedLessons >= d.totalLessons ? '#a6e3a1' : '#a6adc8';
+    const countText = d.totalLessons ? `${d.completedLessons}/${d.totalLessons}` : '0/0';
+    setTextIfChanged(countEl, countText);
+    const countColor = d.totalLessons > 0 && d.completedLessons >= d.totalLessons ? '#a6e3a1' : '#a6adc8';
+    setStyleIfChanged(countEl, 'color', countColor);
   }
 
   // ---- Chapter label (right of header) ----
   const chLabel = panelEl.querySelector('#bfw-course-ch-label');
   if (chLabel) {
-    chLabel.textContent = d.curChapLessons ? `本章 ${d.curChapDone}/${d.curChapLessons}` : '';
-    chLabel.style.display = d.curChapLessons ? '' : 'none';
+    const labelText = d.curChapLessons ? `本章 ${d.curChapDone}/${d.curChapLessons}` : '';
+    setTextIfChanged(chLabel, labelText);
+    setStyleIfChanged(chLabel, 'display', d.curChapLessons ? '' : 'none');
   }
 
   // ---- Current lesson ----
   const nameEl = panelEl.querySelector('#bfw-course-current-name');
   if (nameEl) {
-    nameEl.textContent = d.currentName || (d.totalLessons > 0 ? '就绪…' : '等待课程…');
+    setTextIfChanged(nameEl, d.currentName || (d.totalLessons > 0 ? '就绪…' : '等待课程…'));
   }
   const chNameEl = panelEl.querySelector('#bfw-course-current-chapter');
   if (chNameEl) {
-    chNameEl.textContent = d.currentChapter || '';
+    setTextIfChanged(chNameEl, d.currentChapter || '');
   }
 
   // ---- Video progress ----
   const vidPctEl = panelEl.querySelector('#bfw-course-vid-pct');
   if (vidPctEl) {
-    vidPctEl.textContent = d.currentName ? `视频 ${d.videoProgress || 0}%` : '';
+    setTextIfChanged(vidPctEl, d.currentName ? `视频 ${d.videoProgress || 0}%` : '');
   }
 
   // ---- Stat line ----
@@ -123,7 +161,7 @@ export function refreshCourseProgress() {
         ? `剩余约 ${Math.round(d.remainingMinutes / 60)}h`
         : `剩余约 ${d.remainingMinutes}min`);
     }
-    statEl.textContent = parts.join(' · ');
+    setTextIfChanged(statEl, parts.join(' · '));
   }
 }
 

@@ -133,6 +133,19 @@ function validateSchema(data) {
       if (s.endTime !== null && typeof s.endTime !== 'number') return false;
       return true;
     });
+
+    // Fill in lessonsAtStart for sessions saved before this field existed.
+    // Old sessions stored lessonsCompleted as the total (not delta).  We
+    // default lessonsAtStart to 0 so the existing lessonsCompleted value
+    // is treated as the delta — correct for single-session courses, but
+    // may over-count for courses with multiple old sessions.  Users in
+    // that situation should clear stats ("清空统计") to get accurate
+    // numbers going forward.
+    for (const s of data.sessions) {
+      if (typeof s.lessonsAtStart !== 'number') {
+        s.lessonsAtStart = 0;
+      }
+    }
   }
 
   // Validate courses object
@@ -266,6 +279,10 @@ export function startSession(courseId, courseName) {
     endTime: null,
     chaptersCompleted: 0,
     lessonsCompleted: 0,
+    /** Number of lessons already completed when this session started.
+     *  -1 = baseline not yet captured (React state not available).
+     *  Used to compute the delta of lessons completed *during* this session. */
+    lessonsAtStart: -1,
     duration: 0,
   };
 
@@ -305,15 +322,24 @@ export function updateSession(chaptersCompleted, lessonsCompleted, totalLessons)
   currentSession.chaptersCompleted = chaptersCompleted;
   currentSession.lessonsCompleted = lessonsCompleted;
 
-  // Update course total if we discover a new max
-  const course = progressData.courses[currentSession.courseId];
-  if (course && totalLessons > course.totalLessons) {
-    course.totalLessons = totalLessons;
+  // Lazily capture the baseline of already-completed lessons on the first
+  // non-zero React state read.  This allows us to compute the *delta* of
+  // lessons completed during this session in endSession().
+  if (currentSession.lessonsAtStart === -1 && lessonsCompleted > 0) {
+    currentSession.lessonsAtStart = lessonsCompleted;
   }
 
-  // NOTE: Do NOT update completedCount here — it should only be set in endSession
-  // to avoid the data getting stuck at historical max values when users re-take courses.
-  // The session already tracks lessonsCompleted, which is the source of truth.
+  // Update course record from React ground-truth
+  const course = progressData.courses[currentSession.courseId];
+  if (course) {
+    if (totalLessons > course.totalLessons) {
+      course.totalLessons = totalLessons;
+    }
+    // Keep completedCount in sync with the current React-reported total.
+    // Using Math.max prevents transient zeros from overwriting real data
+    // when React briefly unmounts during SPA navigation.
+    course.completedCount = Math.max(course.completedCount || 0, lessonsCompleted);
+  }
 
   // Debounced save (avoid excessive writes during active learning)
   clearTimeout(saveTimer);
@@ -337,11 +363,22 @@ export async function endSession() {
   currentSession.endTime = Date.now();
   currentSession.duration = Math.round((currentSession.endTime - currentSession.startTime) / 1000);
 
+  // ---- Compute the delta of lessons completed *during* this session ----
+  // currentSession.lessonsCompleted holds the TOTAL from the last React state read.
+  // lessonsAtStart is the TOTAL when we first saw non-zero React data.
+  // The delta is what actually changed — this is what stats should sum.
+  const totalCompleted = currentSession.lessonsCompleted;
+  const baseline = currentSession.lessonsAtStart >= 0 ? currentSession.lessonsAtStart : totalCompleted;
+  const delta = Math.max(0, totalCompleted - baseline);
+  // Overwrite with delta so stats aggregation (sum of session.lessonsCompleted)
+  // produces the correct total instead of inflating it.
+  currentSession.lessonsCompleted = delta;
+
   // Discard sessions that are too short and produced nothing — these are
   // almost always page reloads or SPA navigations that fired stopCourseMonitor
   // before any real learning happened.
   const { MIN_SESSION_DURATION_S } = PROGRESS_TRACKER_CONFIG;
-  if (currentSession.duration < MIN_SESSION_DURATION_S && currentSession.lessonsCompleted === 0) {
+  if (currentSession.duration < MIN_SESSION_DURATION_S && delta === 0 && totalCompleted === 0) {
     // Remove the pre-persisted placeholder written in startSession
     const idx = progressData.sessions.findIndex(s => s.id === currentSession.id);
     if (idx !== -1) progressData.sessions.splice(idx, 1);
@@ -366,16 +403,90 @@ export async function endSession() {
   const course = progressData.courses[currentSession.courseId];
   if (course) {
     course.lastStudy = currentSession.endTime;
-    course.completedCount = currentSession.lessonsCompleted;
+    // Use Math.max to avoid transient decreases (e.g. from React unmount/remount
+    // during SPA navigation). completedCount is also kept in sync by updateSession
+    // during active learning, so this is a safety net.
+    course.completedCount = Math.max(course.completedCount || 0, totalCompleted);
     course.sessions = (course.sessions || []).includes(currentSession.id)
       ? course.sessions
       : (course.sessions || []).concat(currentSession.id);
   }
 
-  debug(`ProgressTracker: ended session ${currentSession.id}, duration ${currentSession.duration}s`);
+  debug(`ProgressTracker: ended session ${currentSession.id}, duration ${currentSession.duration}s, delta ${delta} lessons (${totalCompleted} total)`);
 
   currentSession = null;
   await saveProgressData();
+}
+
+/**
+ * Synchronously flush the current session end to localStorage.
+ *
+ * Called from beforeunload handlers where async work may not complete.
+ * Writes directly to localStorage (skips the async storage adapter) so the
+ * session is saved even if the browser is about to tear down the page.
+ *
+ * Falls back to the async path if localStorage is unavailable.
+ */
+export function flushSessionSync() {
+  if (!currentSession) return;
+
+  // Clear pending debounced save
+  clearTimeout(saveTimer);
+  saveTimer = null;
+
+  currentSession.endTime = Date.now();
+  currentSession.duration = Math.round((currentSession.endTime - currentSession.startTime) / 1000);
+
+  // ---- Compute delta (same logic as endSession) ----
+  const totalCompleted = currentSession.lessonsCompleted;
+  const baseline = currentSession.lessonsAtStart >= 0 ? currentSession.lessonsAtStart : totalCompleted;
+  const delta = Math.max(0, totalCompleted - baseline);
+  currentSession.lessonsCompleted = delta;
+
+  // Skip trivial sessions
+  const { MIN_SESSION_DURATION_S } = PROGRESS_TRACKER_CONFIG;
+  if (currentSession.duration < MIN_SESSION_DURATION_S && delta === 0 && totalCompleted === 0) {
+    const idx = progressData.sessions.findIndex(s => s.id === currentSession.id);
+    if (idx !== -1) progressData.sessions.splice(idx, 1);
+    currentSession = null;
+
+    // Synchronous persistence
+    try {
+      progressData.lastSync = Date.now();
+      localStorage.setItem(PROGRESS_TRACKER_KEY, JSON.stringify(progressData));
+    } catch (e) { /* best-effort */ }
+    return;
+  }
+
+  // Update the in-place record
+  const existing = progressData.sessions.find(s => s.id === currentSession.id);
+  if (existing) {
+    Object.assign(existing, currentSession);
+  } else {
+    progressData.sessions.push(currentSession);
+  }
+
+  // Update course record
+  const course = progressData.courses[currentSession.courseId];
+  if (course) {
+    course.lastStudy = currentSession.endTime;
+    course.completedCount = Math.max(course.completedCount || 0, totalCompleted);
+    if (!(course.sessions || []).includes(currentSession.id)) {
+      course.sessions = (course.sessions || []).concat(currentSession.id);
+    }
+  }
+
+  // Synchronous persistence — write directly to localStorage
+  progressData.lastSync = Date.now();
+  try {
+    localStorage.setItem(PROGRESS_TRACKER_KEY, JSON.stringify(progressData));
+    debug(`ProgressTracker: flushed session ${currentSession.id} synchronously`);
+  } catch (e) {
+    // Fallback to async adapter
+    saveProgressData().catch(() => {});
+  }
+
+  currentSession = null;
 }
 
 // ---------------------------------------------------------------------------

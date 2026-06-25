@@ -796,6 +796,19 @@
         if (s.endTime !== null && typeof s.endTime !== 'number') return false;
         return true;
       });
+
+      // Fill in lessonsAtStart for sessions saved before this field existed.
+      // Old sessions stored lessonsCompleted as the total (not delta).  We
+      // default lessonsAtStart to 0 so the existing lessonsCompleted value
+      // is treated as the delta — correct for single-session courses, but
+      // may over-count for courses with multiple old sessions.  Users in
+      // that situation should clear stats ("清空统计") to get accurate
+      // numbers going forward.
+      for (const s of data.sessions) {
+        if (typeof s.lessonsAtStart !== 'number') {
+          s.lessonsAtStart = 0;
+        }
+      }
     }
 
     // Validate courses object
@@ -929,6 +942,10 @@
       endTime: null,
       chaptersCompleted: 0,
       lessonsCompleted: 0,
+      /** Number of lessons already completed when this session started.
+       *  -1 = baseline not yet captured (React state not available).
+       *  Used to compute the delta of lessons completed *during* this session. */
+      lessonsAtStart: -1,
       duration: 0,
     };
 
@@ -968,15 +985,24 @@
     currentSession.chaptersCompleted = chaptersCompleted;
     currentSession.lessonsCompleted = lessonsCompleted;
 
-    // Update course total if we discover a new max
-    const course = progressData.courses[currentSession.courseId];
-    if (course && totalLessons > course.totalLessons) {
-      course.totalLessons = totalLessons;
+    // Lazily capture the baseline of already-completed lessons on the first
+    // non-zero React state read.  This allows us to compute the *delta* of
+    // lessons completed during this session in endSession().
+    if (currentSession.lessonsAtStart === -1 && lessonsCompleted > 0) {
+      currentSession.lessonsAtStart = lessonsCompleted;
     }
 
-    // NOTE: Do NOT update completedCount here — it should only be set in endSession
-    // to avoid the data getting stuck at historical max values when users re-take courses.
-    // The session already tracks lessonsCompleted, which is the source of truth.
+    // Update course record from React ground-truth
+    const course = progressData.courses[currentSession.courseId];
+    if (course) {
+      if (totalLessons > course.totalLessons) {
+        course.totalLessons = totalLessons;
+      }
+      // Keep completedCount in sync with the current React-reported total.
+      // Using Math.max prevents transient zeros from overwriting real data
+      // when React briefly unmounts during SPA navigation.
+      course.completedCount = Math.max(course.completedCount || 0, lessonsCompleted);
+    }
 
     // Debounced save (avoid excessive writes during active learning)
     clearTimeout(saveTimer);
@@ -1000,11 +1026,22 @@
     currentSession.endTime = Date.now();
     currentSession.duration = Math.round((currentSession.endTime - currentSession.startTime) / 1000);
 
+    // ---- Compute the delta of lessons completed *during* this session ----
+    // currentSession.lessonsCompleted holds the TOTAL from the last React state read.
+    // lessonsAtStart is the TOTAL when we first saw non-zero React data.
+    // The delta is what actually changed — this is what stats should sum.
+    const totalCompleted = currentSession.lessonsCompleted;
+    const baseline = currentSession.lessonsAtStart >= 0 ? currentSession.lessonsAtStart : totalCompleted;
+    const delta = Math.max(0, totalCompleted - baseline);
+    // Overwrite with delta so stats aggregation (sum of session.lessonsCompleted)
+    // produces the correct total instead of inflating it.
+    currentSession.lessonsCompleted = delta;
+
     // Discard sessions that are too short and produced nothing — these are
     // almost always page reloads or SPA navigations that fired stopCourseMonitor
     // before any real learning happened.
     const { MIN_SESSION_DURATION_S } = PROGRESS_TRACKER_CONFIG;
-    if (currentSession.duration < MIN_SESSION_DURATION_S && currentSession.lessonsCompleted === 0) {
+    if (currentSession.duration < MIN_SESSION_DURATION_S && delta === 0 && totalCompleted === 0) {
       // Remove the pre-persisted placeholder written in startSession
       const idx = progressData.sessions.findIndex(s => s.id === currentSession.id);
       if (idx !== -1) progressData.sessions.splice(idx, 1);
@@ -1029,16 +1066,90 @@
     const course = progressData.courses[currentSession.courseId];
     if (course) {
       course.lastStudy = currentSession.endTime;
-      course.completedCount = currentSession.lessonsCompleted;
+      // Use Math.max to avoid transient decreases (e.g. from React unmount/remount
+      // during SPA navigation). completedCount is also kept in sync by updateSession
+      // during active learning, so this is a safety net.
+      course.completedCount = Math.max(course.completedCount || 0, totalCompleted);
       course.sessions = (course.sessions || []).includes(currentSession.id)
         ? course.sessions
         : (course.sessions || []).concat(currentSession.id);
     }
 
-    debug(`ProgressTracker: ended session ${currentSession.id}, duration ${currentSession.duration}s`);
+    debug(`ProgressTracker: ended session ${currentSession.id}, duration ${currentSession.duration}s, delta ${delta} lessons (${totalCompleted} total)`);
 
     currentSession = null;
     await saveProgressData();
+  }
+
+  /**
+   * Synchronously flush the current session end to localStorage.
+   *
+   * Called from beforeunload handlers where async work may not complete.
+   * Writes directly to localStorage (skips the async storage adapter) so the
+   * session is saved even if the browser is about to tear down the page.
+   *
+   * Falls back to the async path if localStorage is unavailable.
+   */
+  function flushSessionSync() {
+    if (!currentSession) return;
+
+    // Clear pending debounced save
+    clearTimeout(saveTimer);
+    saveTimer = null;
+
+    currentSession.endTime = Date.now();
+    currentSession.duration = Math.round((currentSession.endTime - currentSession.startTime) / 1000);
+
+    // ---- Compute delta (same logic as endSession) ----
+    const totalCompleted = currentSession.lessonsCompleted;
+    const baseline = currentSession.lessonsAtStart >= 0 ? currentSession.lessonsAtStart : totalCompleted;
+    const delta = Math.max(0, totalCompleted - baseline);
+    currentSession.lessonsCompleted = delta;
+
+    // Skip trivial sessions
+    const { MIN_SESSION_DURATION_S } = PROGRESS_TRACKER_CONFIG;
+    if (currentSession.duration < MIN_SESSION_DURATION_S && delta === 0 && totalCompleted === 0) {
+      const idx = progressData.sessions.findIndex(s => s.id === currentSession.id);
+      if (idx !== -1) progressData.sessions.splice(idx, 1);
+      currentSession = null;
+
+      // Synchronous persistence
+      try {
+        progressData.lastSync = Date.now();
+        localStorage.setItem(PROGRESS_TRACKER_KEY, JSON.stringify(progressData));
+      } catch (e) { /* best-effort */ }
+      return;
+    }
+
+    // Update the in-place record
+    const existing = progressData.sessions.find(s => s.id === currentSession.id);
+    if (existing) {
+      Object.assign(existing, currentSession);
+    } else {
+      progressData.sessions.push(currentSession);
+    }
+
+    // Update course record
+    const course = progressData.courses[currentSession.courseId];
+    if (course) {
+      course.lastStudy = currentSession.endTime;
+      course.completedCount = Math.max(course.completedCount || 0, totalCompleted);
+      if (!(course.sessions || []).includes(currentSession.id)) {
+        course.sessions = (course.sessions || []).concat(currentSession.id);
+      }
+    }
+
+    // Synchronous persistence — write directly to localStorage
+    progressData.lastSync = Date.now();
+    try {
+      localStorage.setItem(PROGRESS_TRACKER_KEY, JSON.stringify(progressData));
+      debug(`ProgressTracker: flushed session ${currentSession.id} synchronously`);
+    } catch (e) {
+      // Fallback to async adapter
+      saveProgressData().catch(() => {});
+    }
+
+    currentSession = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -7087,8 +7198,43 @@
     refreshCourseProgress();
   }
 
+  /** Cached last-written DOM values — avoids redundant DOM mutations. */
+  const _lastDom = {};
+
+  /**
+   * Write textContent only if the value differs from what's already in the DOM.
+   * Returns true if a write actually happened.
+   * @param {Element} el
+   * @param {string} value
+   * @returns {boolean}
+   */
+  function setTextIfChanged(el, value) {
+    const key = el.id || el.className;
+    if (_lastDom[key] === value) return false;
+    _lastDom[key] = value;
+    el.textContent = value;
+    return true;
+  }
+
+  /**
+   * Write a style property only if the value differs from the cached state.
+   * @param {Element} el
+   * @param {string} prop
+   * @param {string} value
+   * @returns {boolean}
+   */
+  function setStyleIfChanged(el, prop, value) {
+    const key = `${el.id || el.className}_${prop}`;
+    if (_lastDom[key] === value) return false;
+    _lastDom[key] = value;
+    el.style[prop] = value;
+    return true;
+  }
+
   /**
    * Refresh the course progress DOM from cached data.
+   * Skips redundant writes when values haven't changed, avoiding
+   * unnecessary layout recalculations during frequent pushProgress calls.
    */
   function refreshCourseProgress() {
     if (!panelEl) return;
@@ -7111,44 +7257,47 @@
 
     // ---- Chapter bar (本章) ----
     const chBarFill = panelEl.querySelector('#bfw-course-chbar-fill');
-    if (chBarFill) chBarFill.style.width = `${Math.min(chapPct, 100)}%`;
+    if (chBarFill) setStyleIfChanged(chBarFill, 'width', `${Math.min(chapPct, 100)}%`);
     const chBarPct = panelEl.querySelector('#bfw-course-chbar-pct');
-    if (chBarPct) chBarPct.textContent = d.curChapLessons ? `${chapPct}%` : '';
+    if (chBarPct) setTextIfChanged(chBarPct, d.curChapLessons ? `${chapPct}%` : '');
 
     // ---- Overall bar (总) ----
     const lBarFill = panelEl.querySelector('#bfw-course-lbar-fill');
-    if (lBarFill) lBarFill.style.width = `${Math.min(overallPct, 100)}%`;
+    if (lBarFill) setStyleIfChanged(lBarFill, 'width', `${Math.min(overallPct, 100)}%`);
     const lBarPct = panelEl.querySelector('#bfw-course-lbar-pct');
-    if (lBarPct) lBarPct.textContent = d.totalLessons ? `${overallPct}%` : '';
+    if (lBarPct) setTextIfChanged(lBarPct, d.totalLessons ? `${overallPct}%` : '');
 
     // ---- Count badge ----
     const countEl = panelEl.querySelector('#bfw-course-count');
     if (countEl) {
-      countEl.textContent = d.totalLessons ? `${d.completedLessons}/${d.totalLessons}` : '0/0';
-      countEl.style.color = d.totalLessons > 0 && d.completedLessons >= d.totalLessons ? '#a6e3a1' : '#a6adc8';
+      const countText = d.totalLessons ? `${d.completedLessons}/${d.totalLessons}` : '0/0';
+      setTextIfChanged(countEl, countText);
+      const countColor = d.totalLessons > 0 && d.completedLessons >= d.totalLessons ? '#a6e3a1' : '#a6adc8';
+      setStyleIfChanged(countEl, 'color', countColor);
     }
 
     // ---- Chapter label (right of header) ----
     const chLabel = panelEl.querySelector('#bfw-course-ch-label');
     if (chLabel) {
-      chLabel.textContent = d.curChapLessons ? `本章 ${d.curChapDone}/${d.curChapLessons}` : '';
-      chLabel.style.display = d.curChapLessons ? '' : 'none';
+      const labelText = d.curChapLessons ? `本章 ${d.curChapDone}/${d.curChapLessons}` : '';
+      setTextIfChanged(chLabel, labelText);
+      setStyleIfChanged(chLabel, 'display', d.curChapLessons ? '' : 'none');
     }
 
     // ---- Current lesson ----
     const nameEl = panelEl.querySelector('#bfw-course-current-name');
     if (nameEl) {
-      nameEl.textContent = d.currentName || (d.totalLessons > 0 ? '就绪…' : '等待课程…');
+      setTextIfChanged(nameEl, d.currentName || (d.totalLessons > 0 ? '就绪…' : '等待课程…'));
     }
     const chNameEl = panelEl.querySelector('#bfw-course-current-chapter');
     if (chNameEl) {
-      chNameEl.textContent = d.currentChapter || '';
+      setTextIfChanged(chNameEl, d.currentChapter || '');
     }
 
     // ---- Video progress ----
     const vidPctEl = panelEl.querySelector('#bfw-course-vid-pct');
     if (vidPctEl) {
-      vidPctEl.textContent = d.currentName ? `视频 ${d.videoProgress || 0}%` : '';
+      setTextIfChanged(vidPctEl, d.currentName ? `视频 ${d.videoProgress || 0}%` : '');
     }
 
     // ---- Stat line ----
@@ -7163,7 +7312,7 @@
           ? `剩余约 ${Math.round(d.remainingMinutes / 60)}h`
           : `剩余约 ${d.remainingMinutes}min`);
       }
-      statEl.textContent = parts.join(' · ');
+      setTextIfChanged(statEl, parts.join(' · '));
     }
   }
 
@@ -10452,9 +10601,6 @@
   /** @type {Element|null} The DOM element currently observed by dirObserver */
   let dirObservedEl = null;
 
-  /** @type {number|null} setTimeout handle for periodic progress updates */
-  let progressInterval = null;
-
   /** @type {number} setTimeout handle for play button retry */
   let playRetryTimer = 0;
 
@@ -10638,6 +10784,34 @@
       courseName: '',
     };
 
+    // ---- Extract course identification info (MUST run before early return) ----
+    // Create a stable course ID from URL pathname.
+    // Prioritize extracting numeric course ID from URL (e.g., /course/12345).
+    const pathname = window.location.pathname;
+    const urlMatch = pathname.match(/\/(?:course|study|learn|class)\/(\d+)/i);
+    result.courseId = urlMatch ? `course-${urlMatch[1]}` : pathname;
+
+    // For course name: check if we've already cached a name for this courseId
+    // (prevents name drift when document.title changes dynamically).
+    const progressData = getProgressData();
+    const existingCourse = progressData?.courses?.[result.courseId];
+    if (existingCourse && existingCourse.name) {
+      result.courseName = existingCourse.name;
+    } else {
+      // First time seeing this course — extract name from document title
+      let title = document.title || '百分网在线学习';
+      title = title.replace(/\s*[-–—]\s*(百分网|在线学习|正在学习).*$/, '').trim();
+
+      // Fallback to first chapter name if title cleanup resulted in empty string
+      const firstChapterName = (chapters && chapters.length > 0 && chapters[0].chapterType === 0)
+        ? chapters[0].name
+        : '';
+      result.courseName = title || firstChapterName || pathname || '百分网在线学习';
+    }
+
+    // ---- Return early if no React data available yet ----
+    // courseId and courseName are already populated above, so the session can
+    // still be tied to the correct course even before React renders.
     if (!chapters) return result;
 
     // ---- First pass: compute overall stats, find in-progress lesson ----
@@ -10686,31 +10860,6 @@
       const lessons = (chapter.children || []).filter(l => l.chapterType === 1);
       return lessons.length > 0 && lessons.every(l => l.studyStatus === 3);
     }).length;
-
-    // ---- Extract course identification info ----
-    // Create a stable course ID from URL pathname
-    // Prioritize extracting numeric course ID from URL (e.g., /course/12345)
-    const pathname = window.location.pathname;
-    const urlMatch = pathname.match(/\/(?:course|study|learn|class)\/(\d+)/i);
-    result.courseId = urlMatch ? `course-${urlMatch[1]}` : pathname;
-
-    // For course name: check if we've already cached a name for this courseId
-    // (prevents name drift when document.title changes dynamically)
-    const progressData = getProgressData();
-    const existingCourse = progressData?.courses?.[result.courseId];
-    if (existingCourse && existingCourse.name) {
-      result.courseName = existingCourse.name;
-    } else {
-      // First time seeing this course — extract name from document title
-      let title = document.title || '百分网在线学习';
-      title = title.replace(/\s*[-–—]\s*(百分网|在线学习|正在学习).*$/, '').trim();
-
-      // Fallback to first chapter name if title cleanup resulted in empty string
-      const firstChapterName = chapters.length > 0 && chapters[0].chapterType === 0
-        ? chapters[0].name
-        : '';
-      result.courseName = title || firstChapterName || '百分网在线学习';
-    }
 
     // ---- Fallback: no in-progress lesson found.  Use the first chapter that
     //      still has unfinished lessons as the "current" one. ----
@@ -11027,13 +11176,10 @@
     info('Course monitor started');
     appendLog('课程监控已启动');
 
-    // Pre-load course data from React state
-    getCourseData();
-
     // Initialize progress tracking session
-    // Extract stable course ID and name from parsed progress
+    // courseId is always populated from URL pathname, even before React renders
     const courseProgress = parseCourseProgress();
-    currentCourseId = courseProgress.courseId || `course-${Date.now()}`;
+    currentCourseId = courseProgress.courseId;
     const courseName = courseProgress.courseName || '百分网在线学习';
     currentSessionId = startSession(currentCourseId, courseName);
 
@@ -11076,11 +11222,11 @@
       pushProgress();
 
       // Schedule next tick with jitter
-      progressInterval = setTimeout(scheduleProgress, jitterMs(COURSE_CONFIG.PROGRESS_UPDATE_INTERVAL_MS, 0.2));
+      setTimeout(scheduleProgress, jitterMs(COURSE_CONFIG.PROGRESS_UPDATE_INTERVAL_MS, 0.2));
     }
 
     // Kick off the first tick after an initial short delay
-    progressInterval = setTimeout(scheduleProgress, jitterMs(COURSE_CONFIG.PROGRESS_UPDATE_INTERVAL_MS, 0.2));
+    setTimeout(scheduleProgress, jitterMs(COURSE_CONFIG.PROGRESS_UPDATE_INTERVAL_MS, 0.2));
 
     // Auto-play if enabled
     if (getSetting('autoCourse', false)) {
@@ -11090,55 +11236,6 @@
 
     // Initial progress push
     pushProgress();
-  }
-
-  /**
-   * Stop the course monitor.
-   * Cleans up observers, timers, and event listeners.
-   */
-  async function stopCourseMonitor() {
-    if (!running) return;
-
-    running = false;
-
-    clearTimeout(progressInterval);
-    progressInterval = 0;
-    clearTimeout(playRetryTimer);
-    playRetryTimer = 0;
-    clearTimeout(stuckTimer);
-    stuckTimer = 0;
-
-    if (dirObserver) {
-      dirObserver.disconnect();
-      dirObserver = null;
-      dirObservedEl = null;
-    }
-
-    if (videoEl) {
-      videoEl.removeEventListener('timeupdate', onTimeUpdate);
-      videoEl.removeEventListener('play', onVideoPlay);
-      videoEl.removeEventListener('pause', onVideoPause);
-      videoEl.removeEventListener('ended', onVideoEnded);
-      videoEl = null;
-    }
-
-    resumeAttempts = 0;
-    invalidateCourseCache();
-
-    // End the current progress tracking session
-    if (currentSessionId) {
-      try {
-        await endSession();
-        debug('Course monitor: progress session ended successfully');
-      } catch (e) {
-        warn('Course monitor: failed to end progress session:', e);
-      }
-      currentSessionId = null;
-      currentCourseId = null;
-    }
-
-    info('Course monitor stopped');
-    appendLog('课程监控已停止');
   }
 
   // ---------------------------------------------------------------------------
@@ -11284,15 +11381,15 @@
 
     // ---- Phase 3: register cleanup hooks for session tracking ----
 
-    // End active session when user leaves/refreshes the page
+    // End active session when user leaves/refreshes the page.
+    // Uses synchronous localStorage flush because beforeunload does not wait
+    // for async work — the page may tear down before endSession() completes.
     window.addEventListener('beforeunload', () => {
       try {
-        // stopCourseMonitor is async but beforeunload handlers should not be async
-        // Just call endSession synchronously (best-effort save)
-        stopCourseMonitor();
+        flushSessionSync();
       } catch (e) {
         // Swallow errors in beforeunload to avoid blocking navigation
-        error('Failed to stop course monitor on page unload:', e);
+        error('Failed to flush session on page unload:', e);
       }
     });
   }

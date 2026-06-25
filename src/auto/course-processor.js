@@ -240,6 +240,34 @@ function parseCourseProgress() {
     courseName: '',
   };
 
+  // ---- Extract course identification info (MUST run before early return) ----
+  // Create a stable course ID from URL pathname.
+  // Prioritize extracting numeric course ID from URL (e.g., /course/12345).
+  const pathname = window.location.pathname;
+  const urlMatch = pathname.match(/\/(?:course|study|learn|class)\/(\d+)/i);
+  result.courseId = urlMatch ? `course-${urlMatch[1]}` : pathname;
+
+  // For course name: check if we've already cached a name for this courseId
+  // (prevents name drift when document.title changes dynamically).
+  const progressData = getProgressData();
+  const existingCourse = progressData?.courses?.[result.courseId];
+  if (existingCourse && existingCourse.name) {
+    result.courseName = existingCourse.name;
+  } else {
+    // First time seeing this course — extract name from document title
+    let title = document.title || '百分网在线学习';
+    title = title.replace(/\s*[-–—]\s*(百分网|在线学习|正在学习).*$/, '').trim();
+
+    // Fallback to first chapter name if title cleanup resulted in empty string
+    const firstChapterName = (chapters && chapters.length > 0 && chapters[0].chapterType === 0)
+      ? chapters[0].name
+      : '';
+    result.courseName = title || firstChapterName || pathname || '百分网在线学习';
+  }
+
+  // ---- Return early if no React data available yet ----
+  // courseId and courseName are already populated above, so the session can
+  // still be tied to the correct course even before React renders.
   if (!chapters) return result;
 
   // ---- First pass: compute overall stats, find in-progress lesson ----
@@ -288,31 +316,6 @@ function parseCourseProgress() {
     const lessons = (chapter.children || []).filter(l => l.chapterType === 1);
     return lessons.length > 0 && lessons.every(l => l.studyStatus === 3);
   }).length;
-
-  // ---- Extract course identification info ----
-  // Create a stable course ID from URL pathname
-  // Prioritize extracting numeric course ID from URL (e.g., /course/12345)
-  const pathname = window.location.pathname;
-  const urlMatch = pathname.match(/\/(?:course|study|learn|class)\/(\d+)/i);
-  result.courseId = urlMatch ? `course-${urlMatch[1]}` : pathname;
-
-  // For course name: check if we've already cached a name for this courseId
-  // (prevents name drift when document.title changes dynamically)
-  const progressData = getProgressData();
-  const existingCourse = progressData?.courses?.[result.courseId];
-  if (existingCourse && existingCourse.name) {
-    result.courseName = existingCourse.name;
-  } else {
-    // First time seeing this course — extract name from document title
-    let title = document.title || '百分网在线学习';
-    title = title.replace(/\s*[-–—]\s*(百分网|在线学习|正在学习).*$/, '').trim();
-
-    // Fallback to first chapter name if title cleanup resulted in empty string
-    const firstChapterName = chapters.length > 0 && chapters[0].chapterType === 0
-      ? chapters[0].name
-      : '';
-    result.courseName = title || firstChapterName || '百分网在线学习';
-  }
 
   // ---- Fallback: no in-progress lesson found.  Use the first chapter that
   //      still has unfinished lessons as the "current" one. ----
@@ -629,13 +632,10 @@ export function startCourseMonitor() {
   info('Course monitor started');
   appendLog('课程监控已启动');
 
-  // Pre-load course data from React state
-  const courseData = getCourseData();
-
   // Initialize progress tracking session
-  // Extract stable course ID and name from parsed progress
+  // courseId is always populated from URL pathname, even before React renders
   const courseProgress = parseCourseProgress();
-  currentCourseId = courseProgress.courseId || `course-${Date.now()}`;
+  currentCourseId = courseProgress.courseId;
   const courseName = courseProgress.courseName || '百分网在线学习';
   currentSessionId = startSession(currentCourseId, courseName);
 
