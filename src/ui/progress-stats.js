@@ -251,6 +251,11 @@ function refreshTrendChart(panel) {
   // Set canvas size (2x for retina)
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.parentElement.getBoundingClientRect();
+
+  // Parent is hidden (display:none) — skip and don't cache, so the next call
+  // after the panel is expanded draws correctly.
+  if (rect.width === 0) return;
+
   canvas.width = rect.width * dpr;
   canvas.height = 140 * dpr;
   canvas.style.width = `${rect.width}px`;
@@ -259,7 +264,7 @@ function refreshTrendChart(panel) {
 
   const width = rect.width;
   const height = 140;
-  const padding = { top: 20, right: 10, bottom: 30, left: 10 };
+  const padding = { top: 20, right: 24, bottom: 30, left: 10 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
@@ -375,6 +380,12 @@ export function bindStatsEvents(panel, onClearStats, onExportStats) {
       const isVisible = content.style.display !== 'none';
       content.style.display = isVisible ? 'none' : 'block';
       toggle.style.transform = isVisible ? '' : 'rotate(180deg)';
+
+      // Force chart redraw on expand — canvas had zero width while hidden
+      if (!isVisible) {
+        _lastChartDataKey = null;
+        refreshStats(panel);
+      }
     });
 
     // Set initial state — content starts hidden, so chevron should not be rotated
