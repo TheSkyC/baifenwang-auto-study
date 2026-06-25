@@ -4342,7 +4342,7 @@
     margin-bottom: 10px;
     text-transform: uppercase;
     letter-spacing: 1.2px;
-    padding-left: 2px;
+    padding-left: 6px;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -6714,19 +6714,17 @@
 
     // Set canvas size (2x for retina)
     const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.parentElement.getBoundingClientRect();
+    const cssWidth = canvas.clientWidth;
 
     // Parent is hidden (display:none) — skip and don't cache, so the next call
     // after the panel is expanded draws correctly.
-    if (rect.width === 0) return;
+    if (cssWidth === 0) return;
 
-    canvas.width = rect.width * dpr;
+    canvas.width = cssWidth * dpr;
     canvas.height = 140 * dpr;
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = '140px';
     ctx.scale(dpr, dpr);
 
-    const width = rect.width;
+    const width = cssWidth;
     const height = 140;
     const padding = { top: 20, right: 24, bottom: 30, left: 10 };
     const chartWidth = width - padding.left - padding.right;

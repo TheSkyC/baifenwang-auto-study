@@ -1453,7 +1453,7 @@ export const STYLES = `
     margin-bottom: 10px;
     text-transform: uppercase;
     letter-spacing: 1.2px;
-    padding-left: 2px;
+    padding-left: 6px;
     display: flex;
     align-items: center;
     gap: 6px;
