@@ -4306,18 +4306,13 @@
     background: none;
     border: none;
     color: #74c7ec;
-    cursor: pointer;
     padding: 4px;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s;
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     border-radius: 4px;
-  }
-
-  .bfw-stats-toggle:hover {
-    color: #89b4fa;
-    background: rgba(137, 180, 250, 0.1);
+    pointer-events: none;
   }
 
   .bfw-stats-content {
@@ -6992,8 +6987,9 @@
     const clearBtn = panel.querySelector('#bfw-btn-clear-stats');
     const exportBtn = panel.querySelector('#bfw-btn-export-stats');
 
-    if (toggle && content) {
-      toggle.addEventListener('click', () => {
+    const header = panel.querySelector('.bfw-stats-header');
+    if (header && toggle && content) {
+      header.addEventListener('click', () => {
         const isVisible = content.style.display !== 'none';
         content.style.display = isVisible ? 'none' : 'block';
         toggle.style.transform = isVisible ? '' : 'rotate(180deg)';

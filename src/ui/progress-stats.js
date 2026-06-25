@@ -497,8 +497,9 @@ export function bindStatsEvents(panel, onClearStats, onExportStats) {
   const clearBtn = panel.querySelector('#bfw-btn-clear-stats');
   const exportBtn = panel.querySelector('#bfw-btn-export-stats');
 
-  if (toggle && content) {
-    toggle.addEventListener('click', () => {
+  const header = panel.querySelector('.bfw-stats-header');
+  if (header && toggle && content) {
+    header.addEventListener('click', () => {
       const isVisible = content.style.display !== 'none';
       content.style.display = isVisible ? 'none' : 'block';
       toggle.style.transform = isVisible ? '' : 'rotate(180deg)';
