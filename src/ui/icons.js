@@ -94,7 +94,7 @@ export const icons = {
 
   /** Bar chart — statistics */
   barChart:
-    svgIcon('<line x1="12" y1="2" x2="12" y2="22"/><path d="M19 5h-2a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/>'),
+    svgIcon('<line x1="12" y1="2" x2="12" y2="22"/><path d="M18 5h-2a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/><path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/>'),
 
   /** Chevron down — collapse/expand indicator */
   chevronDown:

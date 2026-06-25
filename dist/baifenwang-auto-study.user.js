@@ -986,9 +986,11 @@
     currentSession.lessonsCompleted = lessonsCompleted;
 
     // Lazily capture the baseline of already-completed lessons on the first
-    // non-zero React state read.  This allows us to compute the *delta* of
-    // lessons completed during this session in endSession().
-    if (currentSession.lessonsAtStart === -1 && lessonsCompleted > 0) {
+    // React state read (totalLessons > 0 in the caller already guarantees
+    // React has rendered).  Capturing even when lessonsCompleted is 0 is
+    // essential — if we wait for a non-zero value, the baseline ends up > 0
+    // and the delta at session-end is zero for every lesson completed.
+    if (currentSession.lessonsAtStart === -1) {
       currentSession.lessonsAtStart = lessonsCompleted;
     }
 
@@ -5100,7 +5102,7 @@
 
     /** Bar chart — statistics */
     barChart:
-      svgIcon('<line x1="12" y1="2" x2="12" y2="22"/><path d="M19 5h-2a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/>'),
+      svgIcon('<line x1="12" y1="2" x2="12" y2="22"/><path d="M18 5h-2a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/><path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/>'),
 
     /** Chevron down — collapse/expand indicator */
     chevronDown:
