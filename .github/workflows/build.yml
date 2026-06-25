@@ -22,7 +22,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -34,8 +34,8 @@ jobs:
       - name: Git commit
         id: commit
         run: |
-          git add --all
-          git commit -m "chore(build): ci build"
+          git add dist/
+          git commit -m "chore(build): ci build [skip ci]"
         continue-on-error: true
 
       - name: Git push
