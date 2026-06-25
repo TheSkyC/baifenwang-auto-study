@@ -7395,14 +7395,17 @@
     const vidFrac = (d.videoProgress || 0) / 100;
 
     // ---- Current-chapter progress (fractional: includes video position) ----
+    // Capped at 1.0: when replaying a completed lesson (studyStatus===3),
+    // that lesson is already counted in curChapDone, so raw vidFrac addition
+    // can push the fraction above 1.0.
     const chapFraction = d.curChapLessons > 0
-      ? (d.curChapDone + vidFrac) / d.curChapLessons
+      ? Math.min((d.curChapDone + vidFrac) / d.curChapLessons, 1)
       : 0;
     const chapPct = Math.round(chapFraction * 100);
 
     // ---- Overall progress (fractional: includes video position) ----
     const overallFraction = d.totalLessons > 0
-      ? (d.completedLessons + vidFrac) / d.totalLessons
+      ? Math.min((d.completedLessons + vidFrac) / d.totalLessons, 1)
       : 0;
     const overallPct = Math.round(overallFraction * 100);
 
@@ -10734,6 +10737,12 @@
     LIST_CONTAINER: '[class^="list___"]',
     /** Course directory list element for MutationObserver */
     LIST_OBSERVE: '.list___3GtHP, .list',
+    /**
+     * The sidebar marks the currently-playing lesson with a CSS-module
+     * class `playIngName___<hash>`.  We use a prefix match to survive
+     * hash changes across platform deployments.
+     */
+    PLAYING_NAME: '[class*="playIngName"]',
   };
 
   // ---------------------------------------------------------------------------
@@ -10894,6 +10903,60 @@
   // ---------------------------------------------------------------------------
 
   /**
+   * Read the name of the currently-playing lesson from the sidebar DOM.
+   *
+   * The platform's sidebar marks the active lesson's name element with a
+   * CSS-module class `playIngName___<hash>`.  We use a prefix attribute
+   * selector to survive hash changes across platform redeploys.
+   *
+   * This is more reliable than React `studyStatus` for determining which
+   * lesson the user is watching, because `studyStatus` does NOT change
+   * from 3 (DONE) back to 2 (IN_PROGRESS) when the user replays a
+   * completed lesson — but the sidebar DOM always updates.
+   *
+   * @returns {string|null} The lesson name text, or null if not found.
+   */
+  function getPlayingLessonNameFromDOM() {
+    const el = document.querySelector(SELECTORS.PLAYING_NAME);
+    if (!el) return null;
+    const name = (el.textContent || '').trim();
+    return name || null;
+  }
+
+  /**
+   * Resolve chapter progress for a specific chapter identified by the DOM
+   * sidebar (rather than by React studyStatus).
+   *
+   * When the user replays a completed lesson, React keeps its studyStatus
+   * at 3, so the `studyStatus=2` heuristic points at a different (stale)
+   * chapter.  This helper overrides the chapter selection when the sidebar
+   * DOM tells us a different lesson is actually playing.
+   *
+   * @param {Array} chapters - React course data array
+   * @param {string} lessonName - Lesson name from the sidebar DOM
+   * @param {Object} result - The result object to mutate
+   */
+  function applyDOMChapterHint(chapters, lessonName, result) {
+    for (const chapter of chapters) {
+      if (chapter.chapterType !== 0) continue;
+      const lessons = (chapter.children || []).filter(l => l.chapterType === 1);
+      const match = lessons.find(l => l.name === lessonName);
+      if (match) {
+        // Only override if the DOM says we're in a different chapter than
+        // what React studyStatus=2 indicates (or if React had no opinion).
+        if (chapter.name !== result.currentChapter) {
+          result.currentChapter = chapter.name || '';
+          result.currentName = match.name || '';
+          result.currentPct = Math.round(match.studyRate || 0);
+          result.curChapLessons = lessons.length;
+          result.curChapDone = lessons.filter(l => l.studyStatus === 3).length;
+        }
+        return;
+      }
+    }
+  }
+
+  /**
    * Compute progress stats from the React course data.
    *
    * Two-level progress model:
@@ -10902,6 +10965,11 @@
    *
    * In-progress lessons (studyStatus 2) are NOT counted as "done" for either bar
    * — only fully-completed (studyStatus 3) count.
+   *
+   * Chapter detection uses two sources, in priority order:
+   *   1. React `studyStatus === 2` — the canonical "in progress" signal
+   *   2. DOM sidebar `playIngName___` class — more reliable when the user
+   *      replays a completed lesson (React keeps studyStatus=3).
    *
    * @returns {{
    *   chapterCount: number,
@@ -11003,6 +11071,15 @@
         result.curChapLessons = curLessons.length;
         result.curChapDone = curLessons.filter(l => l.studyStatus === 3).length;
       }
+    }
+
+    // ---- DOM hint: the sidebar's `playIngName___` class reflects which lesson
+    //      the user is actually watching.  When the user replays a completed
+    //      lesson, React keeps studyStatus=3 on that lesson, so the studyStatus=2
+    //      heuristic picks a stale chapter.  The DOM sidebar is always correct.
+    const domLessonName = getPlayingLessonNameFromDOM();
+    if (domLessonName) {
+      applyDOMChapterHint(chapters, domLessonName, result);
     }
 
     // ---- Third pass: compute completed chapters count ----

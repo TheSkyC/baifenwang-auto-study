@@ -93,14 +93,17 @@ export function refreshCourseProgress() {
   const vidFrac = (d.videoProgress || 0) / 100;
 
   // ---- Current-chapter progress (fractional: includes video position) ----
+  // Capped at 1.0: when replaying a completed lesson (studyStatus===3),
+  // that lesson is already counted in curChapDone, so raw vidFrac addition
+  // can push the fraction above 1.0.
   const chapFraction = d.curChapLessons > 0
-    ? (d.curChapDone + vidFrac) / d.curChapLessons
+    ? Math.min((d.curChapDone + vidFrac) / d.curChapLessons, 1)
     : 0;
   const chapPct = Math.round(chapFraction * 100);
 
   // ---- Overall progress (fractional: includes video position) ----
   const overallFraction = d.totalLessons > 0
-    ? (d.completedLessons + vidFrac) / d.totalLessons
+    ? Math.min((d.completedLessons + vidFrac) / d.totalLessons, 1)
     : 0;
   const overallPct = Math.round(overallFraction * 100);
 
