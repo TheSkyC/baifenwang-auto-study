@@ -27,19 +27,42 @@ jobs:
 
       - name: Extract version
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          # Validate semver tag format (vX.Y.Z with optional -suffix)
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\-.+)?$ ]]; then
+            echo "::error::Release tag must match vX.Y.Z (e.g. v1.0.0, v1.0.0-beta)"
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute SHA-256
+        id: checksum
+        run: |
+          sha256=$(sha256sum dist/baifenwang-auto-study.user.js | awk '{print $1}')
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          echo "${sha256}  baifenwang-auto-study.user.js" > dist/SHA256SUMS.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2.3.2
         with:
-          files: dist/baifenwang-auto-study.user.js
-          generate_release_notes: false
+          files: |
+            dist/baifenwang-auto-study.user.js
+            dist/SHA256SUMS.txt
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           body: |
             ## 安装
 
             直接点击下方链接通过 Tampermonkey / Violentmonkey 安装：
 
             👉 [安装脚本](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/baifenwang-auto-study.user.js)
+
+            ## SHA-256
+
+            ```
+            ${{ steps.checksum.outputs.sha256 }}  baifenwang-auto-study.user.js
+            ```
 
       # ── Upload to R2 ──────────────────────────────────────────────────────
       - name: Upload versioned artifact to R2
