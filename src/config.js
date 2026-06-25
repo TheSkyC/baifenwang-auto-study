@@ -28,6 +28,14 @@ export const SETTINGS_KEY = 'bfw_settings';
 // Progress tracker storage key
 export const PROGRESS_TRACKER_KEY = 'bfw_progress';
 
+// Progress tracker behavior thresholds
+export const PROGRESS_TRACKER_CONFIG = {
+  /** Sessions shorter than this (seconds) with 0 lessons completed are discarded on end. */
+  MIN_SESSION_DURATION_S: 30,
+  /** Unfinished sessions older than this (ms) are not resumed — treated as abandoned. */
+  RESUME_MAX_AGE_MS: 4 * 60 * 60 * 1000,  // 4 hours
+};
+
 // Retry settings for auto-processor
 export const AUTO_CONFIG = {
   /** Delay before initial sequence kickoff (ms) */

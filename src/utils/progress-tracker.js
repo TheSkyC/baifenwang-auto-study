@@ -14,7 +14,7 @@
  *   }
  */
 
-import { PROGRESS_TRACKER_KEY } from '../config.js';
+import { PROGRESS_TRACKER_KEY, PROGRESS_TRACKER_CONFIG } from '../config.js';
 import { getStorageAdapter } from './storage-adapter.js';
 import { debug, warn } from './logger.js';
 
@@ -175,13 +175,26 @@ export async function loadProgressTracker() {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
-        // Migrate data if needed
         const migrated = migrateData(parsed);
-
-        // Validate and sanitize schema
         const validated = validateSchema(migrated);
-
         progressData = validated;
+
+        // Seal any unfinished sessions that are too old to resume.
+        // These are leftovers from a hard crash or a browser kill — they were
+        // pre-persisted by startSession() but never reached endSession().
+        const resumeAge = PROGRESS_TRACKER_CONFIG.RESUME_MAX_AGE_MS;
+        let sealedCount = 0;
+        for (const s of progressData.sessions) {
+          if (s.endTime === null && (Date.now() - s.startTime) >= resumeAge) {
+            s.endTime = s.startTime;  // zero-duration; will be skipped by stats
+            s.duration = 0;
+            sealedCount++;
+          }
+        }
+        if (sealedCount > 0) {
+          debug(`ProgressTracker: sealed ${sealedCount} stale unfinished session(s)`);
+        }
+
         debug(`ProgressTracker: loaded ${progressData.sessions.length} sessions, ${Object.keys(progressData.courses).length} courses (schema v${progressData.version})`);
       }
     }
@@ -217,17 +230,30 @@ async function saveProgressData() {
  * @returns {string} Session ID
  */
 export function startSession(courseId, courseName) {
-  // Check if there's an existing unfinished session for this course
-  // (e.g., from a page refresh during active learning)
+  // Fast path: in-memory session for the same course is still live
   if (currentSession && currentSession.courseId === courseId) {
-    debug(`ProgressTracker: resuming existing session ${currentSession.id}`);
+    debug(`ProgressTracker: resuming in-memory session ${currentSession.id}`);
     return currentSession.id;
   }
 
-  // If there's a different unfinished session, end it first
+  // If there's a different in-memory session, end it first
   if (currentSession) {
     warn(`ProgressTracker: ending previous session ${currentSession.id} before starting new one`);
     endSession().catch(e => warn('Failed to end previous session:', e));
+  }
+
+  // Cross-refresh recovery: look for an unfinished persisted session for this
+  // course that was abandoned (e.g. tab reload, SPA navigation).  Only resume
+  // if it started recently enough to still be meaningful.
+  const resumeAge = PROGRESS_TRACKER_CONFIG.RESUME_MAX_AGE_MS;
+  const unfinished = progressData.sessions.findLast(
+    s => s.courseId === courseId && s.endTime === null && (Date.now() - s.startTime) < resumeAge,
+  );
+
+  if (unfinished) {
+    currentSession = { ...unfinished };
+    debug(`ProgressTracker: recovered unfinished session ${unfinished.id} after page reload`);
+    return unfinished.id;
   }
 
   const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -254,6 +280,11 @@ export function startSession(courseId, courseName) {
       sessions: [],
     };
   }
+
+  // Persist the new session immediately so it can be recovered on page reload
+  // before endSession() is ever called.
+  progressData.sessions.push(currentSession);
+  saveProgressData().catch(e => warn('ProgressTracker: failed to persist new session:', e));
 
   debug(`ProgressTracker: started session ${sessionId} for course "${courseName}"`);
   return sessionId;
@@ -306,17 +337,39 @@ export async function endSession() {
   currentSession.endTime = Date.now();
   currentSession.duration = Math.round((currentSession.endTime - currentSession.startTime) / 1000);
 
-  // Store session in history
-  progressData.sessions.push(currentSession);
+  // Discard sessions that are too short and produced nothing — these are
+  // almost always page reloads or SPA navigations that fired stopCourseMonitor
+  // before any real learning happened.
+  const { MIN_SESSION_DURATION_S } = PROGRESS_TRACKER_CONFIG;
+  if (currentSession.duration < MIN_SESSION_DURATION_S && currentSession.lessonsCompleted === 0) {
+    // Remove the pre-persisted placeholder written in startSession
+    const idx = progressData.sessions.findIndex(s => s.id === currentSession.id);
+    if (idx !== -1) progressData.sessions.splice(idx, 1);
+
+    debug(`ProgressTracker: discarded trivial session ${currentSession.id} (${currentSession.duration}s, 0 lessons)`);
+    currentSession = null;
+    await saveProgressData();
+    return;
+  }
+
+  // Update the in-place record that was persisted during startSession
+  const existing = progressData.sessions.find(s => s.id === currentSession.id);
+  if (existing) {
+    Object.assign(existing, currentSession);
+  } else {
+    // Fallback: session was not pre-persisted (e.g. recovered via findLast path
+    // after a reload where the old entry already had an endTime).
+    progressData.sessions.push(currentSession);
+  }
 
   // Update course record
   const course = progressData.courses[currentSession.courseId];
   if (course) {
     course.lastStudy = currentSession.endTime;
-    // Update completedCount here (in endSession) to reflect the true final state
-    // This allows the count to decrease if a user re-takes a course
     course.completedCount = currentSession.lessonsCompleted;
-    course.sessions = (course.sessions || []).concat(currentSession.id);
+    course.sessions = (course.sessions || []).includes(currentSession.id)
+      ? course.sessions
+      : (course.sessions || []).concat(currentSession.id);
   }
 
   debug(`ProgressTracker: ended session ${currentSession.id}, duration ${currentSession.duration}s`);
