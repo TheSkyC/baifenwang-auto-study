@@ -8,7 +8,7 @@
   "homepageURL": "https://github.com/TheSkyC/baifenwang-auto-study",
   "supportURL": "https://github.com/TheSkyC/baifenwang-auto-study/issues",
   "updateURL": "https://raw.githubusercontent.com/TheSkyC/baifenwang-auto-study/master/dist/baifenwang-auto-study.user.js",
-  "downloadURL": "https://raw.githubusercontent.com/TheSkyC/baifenwang-auto-study/master/dist/baifenwang-auto-study.user.js",
+  "downloadURL": "https://update.tarxf.com/latest.user.js",
   "match": [
     "*://*.tj.100.wang/*"
   ],
