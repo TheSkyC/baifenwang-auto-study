@@ -18,7 +18,7 @@ import { openCropEditor } from './crop-editor.js';
 import { createStatsSection, bindStatsEvents, refreshStats } from './progress-stats.js';
 import { clearAllProgress, exportProgress } from '../utils/progress-tracker.js';
 import { checkPageVersion } from '../utils/version-checker.js';
-import { checkForUpdate, invalidateUpdateCache } from '../utils/update-checker.js';
+import { checkForUpdate, invalidateUpdateCache, ignoreVersion, clearIgnoredVersion } from '../utils/update-checker.js';
 
 let panelEl = null;
 
@@ -543,9 +543,11 @@ const TYPE_LABELS = {
 /**
  * Render the changelog card DOM.
  * @param {import('../utils/update-checker.js').UpdateResult} result
+ * @param {() => void} onRecheck — called when the user clicks "重新检测"
+ * @param {() => void} onIgnore  — called when the user clicks "忽略此版本"
  * @returns {HTMLElement}
  */
-function createUpdateCard(result) {
+function createUpdateCard(result, onRecheck, onIgnore) {
   const card = document.createElement('div');
   card.className = 'bfw-update-card';
 
@@ -560,17 +562,35 @@ function createUpdateCard(result) {
     <div class="bfw-update-card-meta">
       <span>v${SCRIPT_VERSION}</span>
       <span class="arrow">→</span>
-      <span class="version-badge">${icons.tag} <span class="bfw-latest-ver"></span></span>
+      <span class="version-badge"></span>
+      <button class="bfw-update-recheck-btn" title="重新检测">${icons.refresh}</button>
     </div>
     <div class="bfw-update-changelog"></div>
     <div class="bfw-update-card-actions">
+      <button class="bfw-update-ignore-btn">忽略此版本</button>
       <button class="bfw-update-install-btn">立即安装</button>
     </div>
   `;
 
-  // Populate remote-sourced content via textContent / DOM APIs (no innerHTML for untrusted data)
-  card.querySelector('.bfw-latest-ver').textContent = `v${result.latestVersion}`;
+  // ---- Version badge — clickable when releaseUrl exists ----
+  const versionBadge = card.querySelector('.version-badge');
+  if (result.releaseUrl) {
+    const link = document.createElement('a');
+    link.className = 'bfw-version-badge-link';
+    link.href = result.releaseUrl;
+    link.target = '_blank';
+    link.title = '查看发布说明';
+    link.innerHTML = `${icons.tag} <span class="bfw-latest-ver"></span>`;
+    link.querySelector('.bfw-latest-ver').textContent = `v${result.latestVersion}`;
+    versionBadge.appendChild(link);
+  } else {
+    const span = document.createElement('span');
+    span.className = 'bfw-version-badge-link';
+    span.innerHTML = `${icons.tag} <span class="bfw-latest-ver">v${result.latestVersion}</span>`;
+    versionBadge.appendChild(span);
+  }
 
+  // ---- Changelog entries ----
   const changelogEl = card.querySelector('.bfw-update-changelog');
   const entries = result.changelog.slice(0, 8);
   if (entries.length === 0) {
@@ -604,24 +624,28 @@ function createUpdateCard(result) {
     });
   }
 
-  const actionsEl = card.querySelector('.bfw-update-card-actions');
-
-  if (result.releaseUrl) {
-    const releaseBtn = document.createElement('button');
-    releaseBtn.className = 'bfw-update-release-btn';
-    releaseBtn.textContent = '发布说明';
-    releaseBtn.addEventListener('click', () => window.open(result.releaseUrl, '_blank'));
-    actionsEl.appendChild(releaseBtn);
-  }
+  // ---- Button bindings ----
 
   // Close button
   card.querySelector('.bfw-update-card-close').addEventListener('click', () => {
     card.remove();
   });
 
-  // Install button — opens download URL (triggers script manager install dialog)
+  // Install button
   card.querySelector('.bfw-update-install-btn').addEventListener('click', () => {
     if (result.downloadUrl) window.open(result.downloadUrl, '_blank');
+    card.remove();
+  });
+
+  // Ignore button
+  card.querySelector('.bfw-update-ignore-btn').addEventListener('click', () => {
+    onIgnore();
+    card.remove();
+  });
+
+  // Recheck button
+  card.querySelector('.bfw-update-recheck-btn').addEventListener('click', () => {
+    onRecheck();
     card.remove();
   });
 
@@ -657,33 +681,6 @@ function createUpdateBadge(footer) {
   btn.innerHTML = `<span class="bfw-icon-spin">${icons.loader}</span>`;
   wrapper.appendChild(btn);
 
-  // Called when checkForUpdate resolves
-  const onResult = (result) => {
-    _updateResult = result;
-
-    if (!result.hasUpdate) {
-      // Up to date — show subtle version tag, no pulse
-      btn.className = 'bfw-update-btn';
-      btn.title = `已是最新版本 v${result.latestVersion}，点击重新检测`;
-      btn.innerHTML = icons.tag;
-      btn.onclick = (e) => { e.stopPropagation(); triggerRecheck(); };
-      return;
-    }
-
-    // Has update — orange pulsing badge
-    btn.className = 'bfw-update-btn has-update';
-    btn.title = `发现新版本 v${result.latestVersion}，点击查看`;
-    btn.innerHTML = `${icons.arrowUpCircle}<span style="font-weight:600;">v${result.latestVersion}</span>`;
-
-    // Use onclick (not addEventListener) so re-check via contextmenu never stacks listeners
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      const existing = wrapper.querySelector('.bfw-update-card');
-      if (existing) { existing.remove(); return; }
-      wrapper.appendChild(createUpdateCard(result));
-    };
-  };
-
   // triggerRecheck and onError are mutually referencing — use let to allow forward reference
   let triggerRecheck;
 
@@ -699,8 +696,52 @@ function createUpdateBadge(footer) {
     btn.title = '正在检测更新…';
     btn.innerHTML = `<span class="bfw-icon-spin">${icons.loader}</span>`;
     btn.onclick = null;
+    clearIgnoredVersion();
     invalidateUpdateCache();
     checkForUpdate(onResult, { force: true, delay: 0, onError });
+  };
+
+  // Called when checkForUpdate resolves
+  const onResult = (result) => {
+    _updateResult = result;
+
+    if (!result.hasUpdate) {
+      // Quiet badge — up to date or version ignored
+      btn.className = 'bfw-update-btn';
+      if (result.ignoredVersion) {
+        btn.title = `v${result.ignoredVersion} 已忽略，点击重新检测`;
+        btn.innerHTML = icons.tag;
+      } else {
+        btn.title = `已是最新版本 v${result.latestVersion}，点击重新检测`;
+        btn.innerHTML = icons.tag;
+      }
+      btn.onclick = (e) => { e.stopPropagation(); triggerRecheck(); };
+      return;
+    }
+
+    // Has update — orange pulsing badge
+    btn.className = 'bfw-update-btn has-update';
+    btn.title = `发现新版本 v${result.latestVersion}，点击查看`;
+    btn.innerHTML = `${icons.arrowUpCircle}<span style="font-weight:600;">v${result.latestVersion}</span>`;
+
+    // Use onclick (not addEventListener) so re-check via contextmenu never stacks listeners
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const existing = wrapper.querySelector('.bfw-update-card');
+      if (existing) { existing.remove(); return; }
+
+      const onIgnore = () => {
+        ignoreVersion(result.latestVersion);
+        // Re-apply the ignore filter and update badge state
+        onResult({
+          ...result,
+          hasUpdate: false,
+          ignoredVersion: result.latestVersion,
+        });
+      };
+
+      wrapper.appendChild(createUpdateCard(result, triggerRecheck, onIgnore));
+    };
   };
 
   checkForUpdate(onResult, { onError });

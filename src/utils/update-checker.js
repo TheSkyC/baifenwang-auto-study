@@ -7,7 +7,8 @@
  *     if a fresh cached result exists.
  *   - Network/parse errors are silently swallowed — never interrupts the
  *     main script flow.
- *   - Exposes a single public API: checkForUpdate(callback).
+ *   - Exposes public APIs: checkForUpdate, invalidateUpdateCache,
+ *     ignoreVersion, clearIgnoredVersion.
  */
 
 import { SCRIPT_VERSION, UPDATE_API_URL } from '../config.js';
@@ -15,6 +16,7 @@ import * as logger from './logger.js';
 import { getStorageAdapter } from './storage-adapter.js';
 
 const CACHE_KEY = 'bfw_update_cache';
+const IGNORE_KEY = 'bfw_ignored_version';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const CHECK_DELAY_MS = 5000;
 const FETCH_TIMEOUT_MS = 8000;
@@ -27,6 +29,7 @@ const FETCH_TIMEOUT_MS = 8000;
  * @property {Array<{type: string, title: string, description?: string}>} changelog
  * @property {string}  releaseUrl
  * @property {string}  checkedAt  — ISO timestamp
+ * @property {string}  [ignoredVersion] — set when the user has dismissed this version
  */
 
 /**
@@ -63,6 +66,36 @@ async function writeCache(result) {
  */
 export function invalidateUpdateCache() {
   getStorageAdapter().remove(CACHE_KEY).catch(() => { /* non-fatal */ });
+}
+
+/**
+ * Get the currently ignored version string, or null if none.
+ * @returns {Promise<string|null>}
+ */
+async function getIgnoredVersion() {
+  try {
+    return await getStorageAdapter().get(IGNORE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persist a version string as ignored (user dismissed this version).
+ * @param {string} version
+ */
+export async function ignoreVersion(version) {
+  try {
+    await getStorageAdapter().set(IGNORE_KEY, version);
+  } catch { /* non-fatal */ }
+}
+
+/**
+ * Clear the ignored version record.  Exported so the UI can reset
+ * the ignore state when the user manually rechecks or a new version appears.
+ */
+export function clearIgnoredVersion() {
+  getStorageAdapter().remove(IGNORE_KEY).catch(() => { /* non-fatal */ });
 }
 
 /**
@@ -125,6 +158,26 @@ async function fetchUpdateInfo() {
 }
 
 /**
+ * Apply the ignore filter: if the result has an update but the user has
+ * dismissed that exact version, treat it as no update with ignoredVersion set.
+ * This is applied on both cached and freshly-fetched results.
+ * @param {UpdateResult} result
+ * @returns {Promise<UpdateResult>}
+ */
+async function applyIgnoreFilter(result) {
+  if (!result.hasUpdate) return result;
+  const ignored = await getIgnoredVersion();
+  if (ignored && ignored === result.latestVersion) {
+    return {
+      ...result,
+      hasUpdate: false,
+      ignoredVersion: result.latestVersion,
+    };
+  }
+  return result;
+}
+
+/**
  * Check for updates and invoke the callback when a result is available.
  * Uses the 24-hour cache; forces a fresh fetch only when cache is stale.
  *
@@ -137,10 +190,11 @@ async function fetchUpdateInfo() {
 export function checkForUpdate(onResult, { force = false, delay = CHECK_DELAY_MS, onError } = {}) {
   // Serve from cache immediately (localStorage is synchronous, no need to wait).
   if (!force) {
-    readCache().then(cached => {
+    readCache().then(async (cached) => {
       if (cached) {
-        logger.debug('[update] serving from cache:', cached.latestVersion);
-        onResult(cached);
+        const filtered = await applyIgnoreFilter(cached);
+        logger.debug('[update] serving from cache:', filtered.latestVersion, 'hasUpdate:', filtered.hasUpdate);
+        onResult(filtered);
       }
     });
   }
@@ -155,8 +209,9 @@ export function checkForUpdate(onResult, { force = false, delay = CHECK_DELAY_MS
     try {
       const result = await fetchUpdateInfo();
       await writeCache(result);
-      logger.debug('[update] fetched:', result.latestVersion, 'hasUpdate:', result.hasUpdate);
-      onResult(result);
+      const filtered = await applyIgnoreFilter(result);
+      logger.debug('[update] fetched:', filtered.latestVersion, 'hasUpdate:', filtered.hasUpdate);
+      onResult(filtered);
     } catch (err) {
       logger.debug('[update] check failed:', err?.message);
       onError?.();

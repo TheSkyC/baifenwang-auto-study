@@ -2007,6 +2007,12 @@ export const STYLES = `
   .bfw-update-card-meta .version-badge {
     display: inline-flex;
     align-items: center;
+  }
+
+  /* Common visual badge style — used by both the <a> link and plain <span> */
+  .bfw-version-badge-link {
+    display: inline-flex;
+    align-items: center;
     gap: 3px;
     background: rgba(250, 179, 135, 0.12);
     color: #fab387;
@@ -2014,10 +2020,21 @@ export const STYLES = `
     padding: 1px 6px;
     font-size: 11px;
     font-weight: 600;
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+
+  a.bfw-version-badge-link {
+    cursor: pointer;
+  }
+
+  a.bfw-version-badge-link:hover {
+    background: rgba(250, 179, 135, 0.22);
+    color: #fab387;
   }
 
   .bfw-update-card-meta .arrow {
-    color: #45475a;
+    color: #6c7086;
     font-size: 10px;
   }
 
@@ -2121,9 +2138,9 @@ export const STYLES = `
     border-color: rgba(250, 179, 135, 0.5);
   }
 
-  .bfw-update-release-btn {
+  .bfw-update-ignore-btn {
     background: none;
-    border: 1px solid rgba(69, 71, 90, 0.6);
+    border: 1px solid rgba(69, 71, 90, 0.4);
     color: #6c7086;
     border-radius: 5px;
     padding: 5px 10px;
@@ -2133,8 +2150,28 @@ export const STYLES = `
     white-space: nowrap;
   }
 
-  .bfw-update-release-btn:hover {
+  .bfw-update-ignore-btn:hover {
     color: #a6adc8;
-    border-color: #45475a;
+    border-color: #585b70;
+  }
+
+  .bfw-update-recheck-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: #585b70;
+    border-radius: 3px;
+    padding: 2px;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+    flex-shrink: 0;
+    margin-left: 2px;
+  }
+
+  .bfw-update-recheck-btn:hover {
+    color: #a6adc8;
+    background: rgba(137, 180, 250, 0.08);
   }
 `;
