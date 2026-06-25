@@ -1,22 +1,22 @@
 // ==UserScript==
-// @name           百分网自动刷课助手
-// @description    自动完成百分网人脸验证与课程播放，支持防切屏检测与人脸图片管理
-// @namespace      https://greasyfork.org/baifenwang-auto-study
-// @version        1.0.0
-// @author         TheSkyC
-// @license        MIT
-// @homepageURL    https://github.com/TheSkyC/baifenwang-auto-study
-// @supportURL     https://github.com/TheSkyC/baifenwang-auto-study/issues
-// @updateURL      https://raw.githubusercontent.com/TheSkyC/baifenwang-auto-study/master/dist/baifenwang-auto-study.user.js
-// @downloadURL    https://raw.githubusercontent.com/TheSkyC/baifenwang-auto-study/master/dist/baifenwang-auto-study.user.js
-// @match          *://*.tj.100.wang/*
-// @run-at         document-start
-// @compatible     Tampermonkey
-// @compatible     Greasemonkey
-// @compatible     Violentmonkey
-// @compatible     ScriptCat
-// @compatible     AdGuard
-// @grant          none
+// @name         百分网自动刷课助手
+// @description  自动完成百分网人脸验证与课程播放，支持防切屏检测与人脸图片管理
+// @namespace    https://greasyfork.org/baifenwang-auto-study
+// @version      1.0.0
+// @author       TheSkyC
+// @license      MIT
+// @homepageURL  https://github.com/TheSkyC/baifenwang-auto-study
+// @supportURL   https://github.com/TheSkyC/baifenwang-auto-study/issues
+// @updateURL    https://raw.githubusercontent.com/TheSkyC/baifenwang-auto-study/master/dist/baifenwang-auto-study.user.js
+// @downloadURL  https://update.tarxf.com/latest.user.js
+// @match        *://*.tj.100.wang/*
+// @run-at       document-start
+// @compatible   Tampermonkey
+// @compatible   Greasemonkey
+// @compatible   Violentmonkey
+// @compatible   ScriptCat
+// @compatible   AdGuard
+// @grant        none
 // ==/UserScript==
 
 (function () {
@@ -201,6 +201,7 @@
   const SCRIPT_NAME = '百分网自动刷课助手';
   const SCRIPT_VERSION = '1.0.0';
   const GITHUB_URL = 'https://github.com/TheSkyC/baifenwang-auto-study';
+  const UPDATE_API_URL = 'https://update.tarxf.com';
 
   // Log level
   const LOG_LEVEL = {
@@ -4565,6 +4566,255 @@
     color: #89b4fa;
     transform: scale(1.1);
   }
+
+  /* ================================================================
+   * Update badge — shown in footer-right when an update is available
+   * ================================================================ */
+
+  .bfw-update-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: none;
+    border: none;
+    padding: 2px 3px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #a6adc8;
+    font-size: 10px;
+    line-height: 1;
+    transition: color 0.2s, background 0.2s;
+    position: relative;
+  }
+
+  .bfw-update-btn:hover {
+    color: #cdd6f4;
+    background: rgba(137, 180, 250, 0.08);
+  }
+
+  /* Spinning loader state */
+  .bfw-update-btn.checking {
+    color: #585b70;
+    pointer-events: none;
+  }
+
+  /* Update available state — orange accent */
+  .bfw-update-btn.has-update {
+    color: #fab387;
+    animation: bfw-update-pulse 2.5s ease-in-out infinite;
+  }
+
+  .bfw-update-btn.has-update:hover {
+    color: #fe9057;
+    background: rgba(250, 179, 135, 0.1);
+    animation: none;
+  }
+
+  @keyframes bfw-update-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.6; }
+  }
+
+  /* ================================================================
+   * Update changelog card — pops up above the footer
+   * ================================================================ */
+
+  .bfw-update-card {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    right: 0;
+    width: 300px;
+    background: #1e1e2e;
+    border: 1px solid rgba(250, 179, 135, 0.35);
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(250, 179, 135, 0.08);
+    z-index: 10;
+    overflow: hidden;
+    animation: bfw-card-in 0.18s cubic-bezier(0.2, 0, 0.2, 1);
+    transform-origin: bottom right;
+  }
+
+  @keyframes bfw-card-in {
+    from { opacity: 0; transform: scale(0.94) translateY(4px); }
+    to   { opacity: 1; transform: scale(1)   translateY(0);    }
+  }
+
+  .bfw-update-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid rgba(49, 50, 68, 0.8);
+  }
+
+  .bfw-update-card-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fab387;
+  }
+
+  .bfw-update-card-close {
+    background: none;
+    border: none;
+    padding: 2px;
+    cursor: pointer;
+    color: #585b70;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+  }
+
+  .bfw-update-card-close:hover {
+    color: #cdd6f4;
+    background: rgba(205, 214, 244, 0.08);
+  }
+
+  .bfw-update-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px 0;
+    font-size: 11px;
+    color: #a6adc8;
+  }
+
+  .bfw-update-card-meta .version-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: rgba(250, 179, 135, 0.12);
+    color: #fab387;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .bfw-update-card-meta .arrow {
+    color: #45475a;
+    font-size: 10px;
+  }
+
+  /* Changelog list inside the card */
+  .bfw-update-changelog {
+    padding: 8px 12px;
+    max-height: 180px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #313244 transparent;
+  }
+
+  .bfw-update-changelog::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .bfw-update-changelog::-webkit-scrollbar-thumb {
+    background: #313244;
+    border-radius: 2px;
+  }
+
+  .bfw-update-changelog-empty {
+    font-size: 11px;
+    color: #585b70;
+    padding: 4px 0;
+  }
+
+  .bfw-changelog-entry {
+    display: flex;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 11px;
+    line-height: 1.4;
+    border-bottom: 1px solid rgba(49, 50, 68, 0.5);
+  }
+
+  .bfw-changelog-entry:last-child {
+    border-bottom: none;
+  }
+
+  .bfw-changelog-type {
+    flex-shrink: 0;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    padding: 1px 5px;
+    border-radius: 3px;
+    align-self: flex-start;
+    margin-top: 1px;
+    text-transform: uppercase;
+  }
+
+  .bfw-type-feature    { background: rgba(137, 180, 250, 0.15); color: #89b4fa; }
+  .bfw-type-fix        { background: rgba(243, 139, 168, 0.15); color: #f38ba8; }
+  .bfw-type-improvement{ background: rgba(166, 227, 161, 0.15); color: #a6e3a1; }
+  .bfw-type-performance{ background: rgba(249, 226, 175, 0.15); color: #f9e2af; }
+  .bfw-type-security   { background: rgba(250, 179, 135, 0.15); color: #fab387; }
+  .bfw-type-breaking   { background: rgba(243, 139, 168, 0.2);  color: #f38ba8; }
+  .bfw-type-docs       { background: rgba(108, 112, 134, 0.2);  color: #6c7086; }
+  .bfw-type-internal   { background: rgba(69, 71, 90, 0.4);     color: #45475a; }
+
+  .bfw-changelog-text {
+    color: #cdd6f4;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .bfw-changelog-text .desc {
+    display: block;
+    font-size: 10px;
+    color: #6c7086;
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Card action buttons */
+  .bfw-update-card-actions {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px 10px;
+    border-top: 1px solid rgba(49, 50, 68, 0.8);
+  }
+
+  .bfw-update-install-btn {
+    flex: 1;
+    background: rgba(250, 179, 135, 0.15);
+    border: 1px solid rgba(250, 179, 135, 0.3);
+    color: #fab387;
+    border-radius: 5px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .bfw-update-install-btn:hover {
+    background: rgba(250, 179, 135, 0.25);
+    border-color: rgba(250, 179, 135, 0.5);
+  }
+
+  .bfw-update-release-btn {
+    background: none;
+    border: 1px solid rgba(69, 71, 90, 0.6);
+    color: #6c7086;
+    border-radius: 5px;
+    padding: 5px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  }
+
+  .bfw-update-release-btn:hover {
+    color: #a6adc8;
+    border-color: #45475a;
+  }
 `;
 
   /**
@@ -4688,6 +4938,18 @@
 
     /** GitHub logo */
     github: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8"/></svg>`,
+
+    /** Arrow-up-circle — new version available */
+    arrowUpCircle:
+      svgIcon('<circle cx="12" cy="12" r="10"/><polyline points="16 12 12 8 8 12"/><line x1="12" y1="16" x2="12" y2="8"/>', 13),
+
+    /** Loader / spinner — checking in progress */
+    loader:
+      svgIcon('<line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/>', 13),
+
+    /** Tag — version label */
+    tag:
+      svgIcon('<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>', 13),
   };
 
   /**
@@ -6546,6 +6808,162 @@
   }
 
   /**
+   * @file Update checker — queries the update API and caches results.
+   *
+   * Strategy:
+   *   - Checks once per session after a 5-second startup delay.
+   *   - Result is cached in localStorage for 24 hours; no request is made
+   *     if a fresh cached result exists.
+   *   - Network/parse errors are silently swallowed — never interrupts the
+   *     main script flow.
+   *   - Exposes a single public API: checkForUpdate(callback).
+   */
+
+
+  const CACHE_KEY = 'bfw_update_cache';
+  const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+  const CHECK_DELAY_MS = 5000;
+  const FETCH_TIMEOUT_MS = 8000;
+
+  /**
+   * @typedef {Object} UpdateResult
+   * @property {boolean} hasUpdate
+   * @property {string}  latestVersion
+   * @property {string}  downloadUrl
+   * @property {Array<{type: string, title: string, description?: string}>} changelog
+   * @property {string}  releaseUrl
+   * @property {string}  checkedAt  — ISO timestamp
+   */
+
+  /**
+   * Read and validate the cached update result.
+   * Returns null if absent or stale.
+   * @returns {Promise<UpdateResult|null>}
+   */
+  async function readCache() {
+    try {
+      const raw = await getStorageAdapter().get(CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed?.checkedAt) return null;
+      if (Date.now() - new Date(parsed.checkedAt).getTime() > CACHE_TTL_MS) return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Persist an update result via the storage adapter.
+   * Fails silently if storage is unavailable.
+   * @param {UpdateResult} result
+   */
+  async function writeCache(result) {
+    try {
+      await getStorageAdapter().set(CACHE_KEY, JSON.stringify(result));
+    } catch { /* quota exceeded or unavailable — non-fatal */ }
+  }
+
+  /**
+   * Invalidate the cached result, forcing a fresh check on next call.
+   */
+  function invalidateUpdateCache() {
+    getStorageAdapter().remove(CACHE_KEY).catch(() => { /* non-fatal */ });
+  }
+
+  /**
+   * Fetch update info from the API with a timeout.
+   * @returns {Promise<UpdateResult>}
+   */
+  async function fetchUpdateInfo() {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    try {
+      // Step 1 — check endpoint returns hasUpdate + version + downloadUrl
+      const checkUrl = `${UPDATE_API_URL}/api/v1/check?version=${encodeURIComponent(SCRIPT_VERSION)}`;
+      const checkRes = await fetch(checkUrl, {
+        signal: controller.signal,
+        headers: { Accept: 'application/json' },
+      });
+
+      if (!checkRes.ok) throw new Error(`HTTP ${checkRes.status}`);
+      const check = await checkRes.json();
+
+      if (!check.hasUpdate) {
+        return {
+          hasUpdate: false,
+          latestVersion: check.version ?? SCRIPT_VERSION,
+          downloadUrl: check.downloadUrl ?? '',
+          changelog: [],
+          releaseUrl: '',
+          checkedAt: new Date().toISOString(),
+        };
+      }
+
+      // Step 2 — fetch full release metadata for changelog (only when update exists)
+      let changelog = [];
+      let releaseUrl = '';
+      try {
+        const releaseUrl_ = `${UPDATE_API_URL}/api/v1/releases/${encodeURIComponent(check.version)}`;
+        const releaseRes = await fetch(releaseUrl_, {
+          signal: controller.signal,
+          headers: { Accept: 'application/json' },
+        });
+        if (releaseRes.ok) {
+          const release = await releaseRes.json();
+          changelog = Array.isArray(release.changelog) ? release.changelog : [];
+          releaseUrl = release.source?.releaseUrl ?? '';
+        }
+      } catch { /* changelog fetch failure is non-fatal — still show update badge */ }
+
+      return {
+        hasUpdate: true,
+        latestVersion: check.version,
+        downloadUrl: check.downloadUrl,
+        changelog,
+        releaseUrl,
+        checkedAt: new Date().toISOString(),
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Check for updates and invoke the callback when a result is available.
+   * Uses the 24-hour cache; forces a fresh fetch only when cache is stale.
+   *
+   * @param {(result: UpdateResult) => void} onResult
+   * @param {Object}   [opts]
+   * @param {boolean}  [opts.force=false]  — bypass cache
+   * @param {number}   [opts.delay=CHECK_DELAY_MS]  — startup delay in ms
+   * @param {Function} [opts.onError]  — called when the check fails (network/timeout)
+   */
+  function checkForUpdate(onResult, { force = false, delay = CHECK_DELAY_MS, onError } = {}) {
+    setTimeout(async () => {
+      if (!force) {
+        const cached = await readCache();
+        if (cached) {
+          debug('[update] serving from cache:', cached.latestVersion);
+          onResult(cached);
+          return;
+        }
+      }
+
+      try {
+        const result = await fetchUpdateInfo();
+        await writeCache(result);
+        debug('[update] fetched:', result.latestVersion, 'hasUpdate:', result.hasUpdate);
+        onResult(result);
+      } catch (err) {
+        debug('[update] check failed:', err?.message);
+        onError?.();
+      }
+    }, delay);
+  }
+
+  /**
    * @file UI builder — creates and renders the edge-drawer panel DOM.
    *
    * Panel structure:
@@ -6993,11 +7411,10 @@
    */
   let versionObserver = null;
 
-  /**
-   * Build footer HTML content for given compatibility info.
-   * @param {Object} compatInfo - Result from checkPageVersion()
-   * @returns {string} HTML string for footer-left content
-   */
+  // ---------------------------------------------------------------------------
+  // Footer left — compat version display
+  // ---------------------------------------------------------------------------
+
   function buildFooterLeftHtml(compatInfo) {
     const iconSvg = icons[compatInfo.iconKey] || icons.versionMissing;
 
@@ -7006,23 +7423,213 @@
        <span class="bfw-footer-version">v${SCRIPT_VERSION}</span>
        <span class="bfw-footer-sep">|</span>
        <span class="bfw-footer-page">页面 v${compatInfo.pageVersion}</span>`;
-    } else {
-      return `<span class="bfw-footer-compat" style="color: ${compatInfo.color}" title="${compatInfo.message}">${iconSvg}</span>
-       <span class="bfw-footer-version">v${SCRIPT_VERSION}</span>`;
     }
+    return `<span class="bfw-footer-compat" style="color: ${compatInfo.color}" title="${compatInfo.message}">${iconSvg}</span>
+       <span class="bfw-footer-version">v${SCRIPT_VERSION}</span>`;
+  }
+
+  function updateFooterContent(footer, compatInfo) {
+    const leftEl = footer.querySelector('.bfw-footer-left');
+    if (!leftEl) return;
+    leftEl.innerHTML = buildFooterLeftHtml(compatInfo);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Footer right — update badge
+  // ---------------------------------------------------------------------------
+
+  const TYPE_LABELS = {
+    feature:     '新功能',
+    fix:         '修复',
+    improvement: '优化',
+    performance: '性能',
+    security:    '安全',
+    breaking:    '破坏性',
+    docs:        '文档',
+    internal:    '内部',
+  };
+
+  /**
+   * Render the changelog card DOM.
+   * @param {import('../utils/update-checker.js').UpdateResult} result
+   * @returns {HTMLElement}
+   */
+  function createUpdateCard(result) {
+    const card = document.createElement('div');
+    card.className = 'bfw-update-card';
+
+    // Static skeleton — no remote content here
+    card.innerHTML = `
+    <div class="bfw-update-card-header">
+      <span class="bfw-update-card-title">
+        ${icons.arrowUpCircle} 发现新版本
+      </span>
+      <button class="bfw-update-card-close" title="关闭">${icons.x}</button>
+    </div>
+    <div class="bfw-update-card-meta">
+      <span>v${SCRIPT_VERSION}</span>
+      <span class="arrow">→</span>
+      <span class="version-badge">${icons.tag} <span class="bfw-latest-ver"></span></span>
+    </div>
+    <div class="bfw-update-changelog"></div>
+    <div class="bfw-update-card-actions">
+      <button class="bfw-update-install-btn">立即安装</button>
+    </div>
+  `;
+
+    // Populate remote-sourced content via textContent / DOM APIs (no innerHTML for untrusted data)
+    card.querySelector('.bfw-latest-ver').textContent = `v${result.latestVersion}`;
+
+    const changelogEl = card.querySelector('.bfw-update-changelog');
+    const entries = result.changelog.slice(0, 8);
+    if (entries.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'bfw-update-changelog-empty';
+      empty.textContent = '暂无详细更新说明';
+      changelogEl.appendChild(empty);
+    } else {
+      entries.forEach((e) => {
+        const row = document.createElement('div');
+        row.className = 'bfw-changelog-entry';
+
+        const typeSpan = document.createElement('span');
+        const safeType = /^[a-z]+$/.test(e.type) ? e.type : 'internal';
+        typeSpan.className = `bfw-changelog-type bfw-type-${safeType}`;
+        typeSpan.textContent = TYPE_LABELS[e.type] ?? e.type;
+
+        const textSpan = document.createElement('span');
+        textSpan.className = 'bfw-changelog-text';
+        textSpan.textContent = e.title;
+        if (e.description) {
+          const desc = document.createElement('span');
+          desc.className = 'desc';
+          desc.textContent = e.description;
+          textSpan.appendChild(desc);
+        }
+
+        row.appendChild(typeSpan);
+        row.appendChild(textSpan);
+        changelogEl.appendChild(row);
+      });
+    }
+
+    const actionsEl = card.querySelector('.bfw-update-card-actions');
+
+    if (result.releaseUrl) {
+      const releaseBtn = document.createElement('button');
+      releaseBtn.className = 'bfw-update-release-btn';
+      releaseBtn.textContent = '发布说明';
+      releaseBtn.addEventListener('click', () => window.open(result.releaseUrl, '_blank'));
+      actionsEl.appendChild(releaseBtn);
+    }
+
+    // Close button
+    card.querySelector('.bfw-update-card-close').addEventListener('click', () => {
+      card.remove();
+    });
+
+    // Install button — opens download URL (triggers script manager install dialog)
+    card.querySelector('.bfw-update-install-btn').addEventListener('click', () => {
+      if (result.downloadUrl) window.open(result.downloadUrl, '_blank');
+      card.remove();
+    });
+
+    // Click outside to close
+    setTimeout(() => {
+      const onOutside = (e) => {
+        if (!card.contains(e.target)) {
+          card.remove();
+          document.removeEventListener('click', onOutside);
+        }
+      };
+      document.addEventListener('click', onOutside);
+    }, 0);
+
+    return card;
   }
 
   /**
-   * Create footer info bar with version and compatibility status.
-   * Uses MutationObserver to watch for version element dynamically.
-   * @returns {HTMLElement}
+   * Create the update badge button in the footer-right area.
+   * Starts in "checking" state; transitions to idle or has-update after the
+   * checkForUpdate callback fires.
+   *
+   * @param {HTMLElement} footer
+   * @returns {HTMLElement} The badge button element
    */
+  function createUpdateBadge(footer) {
+    const wrapper = document.createElement('div');
+    wrapper.style.position = 'relative';
+
+    const btn = document.createElement('button');
+    btn.className = 'bfw-update-btn checking';
+    btn.title = '正在检测更新…';
+    btn.innerHTML = `<span class="bfw-icon-spin">${icons.loader}</span>`;
+    wrapper.appendChild(btn);
+
+    // Called when checkForUpdate resolves
+    const onResult = (result) => {
+
+      if (!result.hasUpdate) {
+        // Up to date — show subtle version tag, no pulse
+        btn.className = 'bfw-update-btn';
+        btn.title = `已是最新版本 v${result.latestVersion}`;
+        btn.innerHTML = icons.tag;
+        return;
+      }
+
+      // Has update — orange pulsing badge
+      btn.className = 'bfw-update-btn has-update';
+      btn.title = `发现新版本 v${result.latestVersion}，点击查看`;
+      btn.innerHTML = `${icons.arrowUpCircle} <span style="font-size:10px;font-weight:600;">v${result.latestVersion}</span>`;
+
+      // Use onclick (not addEventListener) so re-check via contextmenu never stacks listeners
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const existing = wrapper.querySelector('.bfw-update-card');
+        if (existing) { existing.remove(); return; }
+        wrapper.appendChild(createUpdateCard(result));
+      };
+    };
+
+    // triggerRecheck and onError are mutually referencing — use let to allow forward reference
+    let triggerRecheck;
+
+    const onError = () => {
+      btn.className = 'bfw-update-btn';
+      btn.title = '检测更新失败，点击重试';
+      btn.innerHTML = icons.tag;
+      btn.onclick = (e) => { e.stopPropagation(); triggerRecheck(); };
+    };
+
+    triggerRecheck = () => {
+      btn.className = 'bfw-update-btn checking';
+      btn.title = '正在检测更新…';
+      btn.innerHTML = `<span class="bfw-icon-spin">${icons.loader}</span>`;
+      btn.onclick = null;
+      invalidateUpdateCache();
+      checkForUpdate(onResult, { force: true, delay: 0, onError });
+    };
+
+    // Right-click / long-press to force re-check
+    btn.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      triggerRecheck();
+    });
+
+    checkForUpdate(onResult, { onError });
+
+    return wrapper;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Footer assembly
+  // ---------------------------------------------------------------------------
+
   function createFooter() {
     const footer = document.createElement('div');
     footer.className = 'bfw-footer';
     footer.id = 'bfw-footer';
 
-    // Build initial HTML using the same function as updates
     const initialInfo = {
       iconKey: 'versionMissing',
       color: '#8c8c8c',
@@ -7034,51 +7641,49 @@
     <div class="bfw-footer-left">
       ${buildFooterLeftHtml(initialInfo)}
     </div>
-    <div class="bfw-footer-right">
-      <a href="${GITHUB_URL}" target="_blank" class="bfw-footer-link" title="GitHub 仓库">${icons.github}</a>
-    </div>
+    <div class="bfw-footer-right"></div>
   `;
 
-    // Start watching for version element
-    startVersionWatch(footer);
+    // Right side: update badge + GitHub link
+    const right = footer.querySelector('.bfw-footer-right');
+    right.appendChild(createUpdateBadge());
+    const ghLink = document.createElement('a');
+    ghLink.href = GITHUB_URL;
+    ghLink.target = '_blank';
+    ghLink.className = 'bfw-footer-link';
+    ghLink.title = 'GitHub 仓库';
+    ghLink.innerHTML = icons.github;
+    right.appendChild(ghLink);
 
+    startVersionWatch(footer);
     return footer;
   }
 
-  /**
-   * Start observing DOM for version element appearance.
-   * Disconnects observer once version is detected.
-   * @param {HTMLElement} footer
-   */
+  // ---------------------------------------------------------------------------
+  // Version watch (page compat, unchanged logic)
+  // ---------------------------------------------------------------------------
+
   function startVersionWatch(footer) {
-    // Clean up existing observer if any
     if (versionObserver) {
       versionObserver.disconnect();
       versionObserver = null;
     }
 
-    // Try immediate check first
     const immediate = checkPageVersion();
     if (immediate.pageVersion) {
       updateFooterContent(footer, immediate);
       return;
     }
 
-    // Throttle flag to limit observer callback frequency
     let isThrottled = false;
-
-    // Set up MutationObserver to watch for the version element
-    versionObserver = new MutationObserver((mutations) => {
-      // Throttle: skip if recently checked
+    versionObserver = new MutationObserver(() => {
       if (isThrottled) return;
       isThrottled = true;
       setTimeout(() => { isThrottled = false; }, 200);
 
-      // Check if version element now exists (checkPageVersion now has fallback selectors)
       const compatInfo = checkPageVersion();
       if (compatInfo.pageVersion) {
         updateFooterContent(footer, compatInfo);
-        // Disconnect observer — we found it
         if (versionObserver) {
           versionObserver.disconnect();
           versionObserver = null;
@@ -7086,31 +7691,14 @@
       }
     });
 
-    // Observe entire document for additions (subtree + childList)
-    versionObserver.observe(document.body, {
-      childList: true,
-      subtree: true,
-    });
+    versionObserver.observe(document.body, { childList: true, subtree: true });
 
-    // Safety: disconnect after 30 seconds even if not found
     setTimeout(() => {
       if (versionObserver) {
         versionObserver.disconnect();
         versionObserver = null;
       }
     }, 30000);
-  }
-
-  /**
-   * Update footer left content with version info.
-   * @param {HTMLElement} footer
-   * @param {Object} compatInfo - Result from checkPageVersion()
-   */
-  function updateFooterContent(footer, compatInfo) {
-    const leftEl = footer.querySelector('.bfw-footer-left');
-    if (!leftEl) return;
-
-    leftEl.innerHTML = buildFooterLeftHtml(compatInfo);
   }
 
   /**
