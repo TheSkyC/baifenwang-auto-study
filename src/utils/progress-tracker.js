@@ -323,9 +323,11 @@ export function updateSession(chaptersCompleted, lessonsCompleted, totalLessons)
   currentSession.lessonsCompleted = lessonsCompleted;
 
   // Lazily capture the baseline of already-completed lessons on the first
-  // non-zero React state read.  This allows us to compute the *delta* of
-  // lessons completed during this session in endSession().
-  if (currentSession.lessonsAtStart === -1 && lessonsCompleted > 0) {
+  // React state read (totalLessons > 0 in the caller already guarantees
+  // React has rendered).  Capturing even when lessonsCompleted is 0 is
+  // essential — if we wait for a non-zero value, the baseline ends up > 0
+  // and the delta at session-end is zero for every lesson completed.
+  if (currentSession.lessonsAtStart === -1) {
     currentSession.lessonsAtStart = lessonsCompleted;
   }
 
