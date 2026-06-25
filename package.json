@@ -4,7 +4,7 @@
   "description": "百分网网课自动刷课脚本 — 智能拦截人脸识别验证，自动完成课程学习任务",
   "main": "src/index.js",
   "scripts": {
-    "build": "rollup -c",
+    "build": "rollup -c && rollup -c rollup.min.config.js",
     "build:min": "rollup -c rollup.min.config.js",
     "dev": "rollup -c -w",
     "bump:patch": "node scripts/bump-version.js patch",
