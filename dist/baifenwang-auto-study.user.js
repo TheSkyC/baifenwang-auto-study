@@ -7,8 +7,8 @@
 // @license        MIT
 // @homepageURL    https://github.com/TheSkyC/baifenwang-auto-study
 // @supportURL     https://github.com/TheSkyC/baifenwang-auto-study/issues
-// @updateURL      https://raw.githubusercontent.com/TheSkyC/baifenwang-auto-study/master/dist/baifenwang-auto-study.user.js
-// @downloadURL    https://update.tarxf.com/latest.user.js
+// @updateURL      https://baifenwang-auto-study.tarxf.com/latest.user.js
+// @downloadURL    https://baifenwang-auto-study.tarxf.com/latest.user.js
 // @match          *://*.tj.100.wang/*
 // @run-at         document-start
 // @compatible     Tampermonkey
@@ -201,7 +201,7 @@
   const SCRIPT_NAME = '百分网自动刷课助手';
   const SCRIPT_VERSION = '1.0.0';
   const GITHUB_URL = 'https://github.com/TheSkyC/baifenwang-auto-study';
-  const UPDATE_API_URL = 'https://update.tarxf.com';
+  const UPDATE_API_URL = 'https://baifenwang-auto-study.tarxf.com';
 
   // Log level
   const LOG_LEVEL = {
