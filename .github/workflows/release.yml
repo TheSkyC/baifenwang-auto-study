@@ -83,7 +83,7 @@ jobs:
           R2_ENDPOINT:           ${{ secrets.R2_ENDPOINT }}
           R2_BUCKET:             ${{ secrets.R2_BUCKET }}
         run: |
-          aws s3 cp "dist/baifenwang-auto-study.user.js" "s3://${R2_BUCKET}/userscripts/${{ github.ref_name }}/baifenwang-auto-study.user.js" \
+          aws s3 cp "dist/baifenwang-auto-study.user.js" "s3://${R2_BUCKET}/baifenwang-auto-study/${{ github.ref_name }}/baifenwang-auto-study.user.js" \
             --endpoint-url "${R2_ENDPOINT}" \
             --content-type application/javascript \
             --no-progress
@@ -101,7 +101,7 @@ jobs:
           R2_ENDPOINT:           ${{ secrets.R2_ENDPOINT }}
           R2_BUCKET:             ${{ secrets.R2_BUCKET }}
         run: |
-          aws s3 cp "dist/baifenwang-auto-study.user.js" "s3://${R2_BUCKET}/userscripts/latest/baifenwang-auto-study.user.js" \
+          aws s3 cp "dist/baifenwang-auto-study.user.js" "s3://${R2_BUCKET}/baifenwang-auto-study/latest/baifenwang-auto-study.user.js" \
             --endpoint-url "${R2_ENDPOINT}" \
             --content-type application/javascript \
             --no-progress
@@ -117,7 +117,7 @@ jobs:
           R2_BUCKET:             ${{ secrets.R2_BUCKET }}
         run: |
           echo "Verifying versioned artifact exists in R2..."
-          aws s3 ls "s3://${R2_BUCKET}/userscripts/${{ github.ref_name }}/baifenwang-auto-study.user.js" \
+          aws s3 ls "s3://${R2_BUCKET}/baifenwang-auto-study/${{ github.ref_name }}/baifenwang-auto-study.user.js" \
             --endpoint-url "${R2_ENDPOINT}" \
             --no-progress
 

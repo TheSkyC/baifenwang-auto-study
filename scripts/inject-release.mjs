@@ -24,6 +24,8 @@ const SIZE = process.env.SIZE;
 const REPO = process.env.REPO;
 const CDN_BASE = process.env.CDN_BASE || '';
 const CHANGELOG_PATH = process.env.CHANGELOG_PATH;
+const PROJECT_SLUG = 'baifenwang-auto-study';
+const ARTIFACT_NAME = 'baifenwang-auto-study.user.js';
 
 // Worker source to modify (in the main repo, under worker/)
 const WORKER_PATH = 'worker/src/index.js';
@@ -124,8 +126,8 @@ function injectRelease(workerContent, version, tag, sha256, size, repo, cdnBase,
     : '[]';
 
   const downloadUrl = cdnBase
-    ? `${cdnBase}/${tag}/baifenwang-auto-study.user.js`
-    : `https://github.com/${repo}/releases/download/${tag}/baifenwang-auto-study.user.js`;
+    ? `${cdnBase}/${PROJECT_SLUG}/${tag}/${ARTIFACT_NAME}`
+    : `https://github.com/${repo}/releases/download/${tag}/${ARTIFACT_NAME}`;
 
   const entry = [
     `  '${version}': {`,
