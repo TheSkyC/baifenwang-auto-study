@@ -38,7 +38,7 @@ export async function smartCropToStandard(img) {
   const srcH = img.naturalHeight;
 
   // Run the face-detection pipeline
-  const faces = await detectFaces(img);
+  const { faces } = await detectFaces(img);
 
   let attentionX, attentionY, cropBias;
 
@@ -71,6 +71,49 @@ export async function smartCropToStandard(img) {
   return { ...result, cropRect };
 }
 
+/**
+ * Run the full face-detection pipeline and return debug information
+ * for visualization in the face preview modal.
+ *
+ * @param {HTMLImageElement} img - decoded image (onload already fired)
+ * @returns {Promise<{faces: Array<{x:number,y:number,width:number,height:number}>|null, tier: 'native'|'skin'|'fallback', attentionPoint: {x:number,y:number}|null, cropRect: {sx:number,sy:number,sw:number,sh:number}|null}>}
+ */
+export async function detectFacesDebug(img) {
+  const srcW = img.naturalWidth;
+  const srcH = img.naturalHeight;
+  const { faces, tier } = await detectFaces(img);
+
+  let attentionX, attentionY, cropBias;
+
+  if (faces && faces.length > 0) {
+    let totalWeight = 0;
+    attentionX = 0;
+    attentionY = 0;
+    for (const f of faces) {
+      const area = f.width * f.height;
+      attentionX += (f.x + f.width / 2) * area;
+      attentionY += (f.y + f.height / 2) * area;
+      totalWeight += area;
+    }
+    attentionX /= totalWeight;
+    attentionY /= totalWeight;
+    cropBias = 0.60;
+  } else {
+    attentionX = srcW / 2;
+    attentionY = srcH * FACE_DETECT_CONFIG.CROP_FALLBACK_BIAS;
+    cropBias = FACE_DETECT_CONFIG.CROP_FALLBACK_BIAS;
+  }
+
+  const cropRect = computeCropRect(srcW, srcH, attentionX, attentionY, cropBias);
+
+  return {
+    faces,
+    tier,
+    attentionPoint: { x: attentionX, y: attentionY },
+    cropRect,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Detection orchestrator
 // ---------------------------------------------------------------------------
@@ -79,21 +122,21 @@ export async function smartCropToStandard(img) {
  * Run the three-tier detection pipeline.
  *
  * @param {HTMLImageElement} img
- * @returns {Promise<Array<{x:number,y:number,width:number,height:number}>|null>}
+ * @returns {Promise<{faces: Array<{x:number,y:number,width:number,height:number}>|null, tier: 'native'|'skin'|'fallback'}>}
  */
-async function detectFaces(img) {
+export async function detectFaces(img) {
   // Tier 1: Native FaceDetector API
   if (FACE_DETECT_CONFIG.NATIVE_ENABLED) {
     const nativeFaces = await detectFacesNative(img);
-    if (nativeFaces && nativeFaces.length > 0) return nativeFaces;
+    if (nativeFaces && nativeFaces.length > 0) return { faces: nativeFaces, tier: 'native' };
   }
 
   // Tier 2: Skin-color heuristic
   const skinFaces = detectFacesSkinHeuristic(img);
-  if (skinFaces && skinFaces.length > 0) return skinFaces;
+  if (skinFaces && skinFaces.length > 0) return { faces: skinFaces, tier: 'skin' };
 
   // Tier 3: nothing found — caller uses fixed bias
-  return null;
+  return { faces: null, tier: 'fallback' };
 }
 
 // ---------------------------------------------------------------------------

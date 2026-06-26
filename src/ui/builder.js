@@ -981,6 +981,7 @@ function createPanelDOM() {
             <span class="bfw-pool-title">图片池</span>
             <div class="bfw-pool-header-right">
               <span class="bfw-pool-count" id="bfw-pool-count">0/50</span>
+              <button class="bfw-preview-btn" id="bfw-btn-preview" title="人脸预览与测试">${icons.sparkles}</button>
               <button class="bfw-weight-btn active" id="bfw-btn-weight" title="动态权重: 开 — 根据图片成功率自动调整选中概率">${icons.sliders}</button>
               <button class="bfw-eye-btn active" id="bfw-btn-eye" title="显示原图">${icons.eyeOff}</button>
             </div>

@@ -494,3 +494,43 @@ export async function switchToFakeCamera(realStream, constraints) {
 
   return createFakeStream(constraints, originalGetUserMedia);
 }
+
+/**
+ * Push a specific image data URL onto all currently active fake streams.
+ * This replaces the canvas image in-place — the draw loop immediately
+ * picks up the new image without tearing down or recreating the stream.
+ *
+ * Used by the face preview modal to test how a specific mutated image
+ * looks on the live video feed.
+ *
+ * @param {string} dataUrl - JPEG/PNG data URI (ideally 400×300)
+ * @returns {Promise<boolean>} true if at least one stream was updated
+ */
+export async function pushImageToActiveStream(dataUrl) {
+  if (!_fakeStreamActive || activeStreamSet.size === 0) {
+    debug('Video interceptor: no active fake stream to push image to');
+    return false;
+  }
+
+  let pushed = false;
+  for (const stream of activeStreamSet) {
+    const state = activeStreams.get(stream);
+    if (!state) continue;
+
+    try {
+      const image = await loadImage(dataUrl);
+      state.image = image;
+      pushed = true;
+      debug('Video interceptor: pushed custom image to live stream');
+    } catch (e) {
+      warn('Video interceptor: failed to push image to stream:', e?.message || e);
+    }
+  }
+
+  if (pushed) {
+    info(`Video interceptor: pushed custom image to ${pushed ? 'live stream' : 'no streams'}`);
+    appendLog('预览图片已推送到摄像头');
+  }
+
+  return pushed;
+}

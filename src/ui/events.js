@@ -8,6 +8,7 @@ import { IMAGE_POOL_CONFIG, VIDEO_CAPTURE_SELECTORS } from '../config.js';
 import { getSetting, setSetting, onChange } from '../settings.js';
 import { icons } from './icons.js';
 import { refreshPoolUI, appendLog, setStatus, hideStatsPopup } from './builder.js';
+import { openFacePreview } from './face-preview.js';
 
 // ---------------------------------------------------------------------------
 // Edge-drawer behaviour — hover to reveal, pin to lock
@@ -77,9 +78,9 @@ export function bindDrawer(panel) {
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && panel.classList.contains('open') && !panel.classList.contains('pinned')) {
-      // Don't close panel when a stats popup or crop editor is open —
+      // Don't close panel when a stats popup, crop editor, or face preview is open —
       // let their own Escape handlers dismiss them first.
-      if (document.querySelector('.bfw-thumb-stats-popup') || document.querySelector('.bfw-ce-overlay')) return;
+      if (document.querySelector('.bfw-thumb-stats-popup') || document.querySelector('.bfw-ce-overlay') || document.querySelector('.bfw-fp-overlay')) return;
       panel.classList.remove('open');
     }
   });
@@ -251,6 +252,14 @@ export function bindPoolEvents(panel) {
       eyeBtn.classList.toggle('active', active);
       eyeBtn.innerHTML = active ? icons.eyeOff : icons.eye;
       eyeBtn.title = active ? '显示原图' : '隐私模糊';
+    });
+  }
+
+  // ---- Face preview button ----
+  const previewBtn = panel.querySelector('#bfw-btn-preview');
+  if (previewBtn) {
+    previewBtn.addEventListener('click', () => {
+      openFacePreview();
     });
   }
 

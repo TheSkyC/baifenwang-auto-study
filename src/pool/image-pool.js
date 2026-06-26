@@ -143,6 +143,17 @@ function getMutationCanvas() {
  * @returns {Promise<string>} mutated JPEG data URI
  */
 function mutateImage(sourceDataUrl) {
+  return mutateImageWithMeta(sourceDataUrl).then((r) => r.dataUrl);
+}
+
+/**
+ * Apply mutations to an image and return both the result and metadata
+ * about which mutations were applied.
+ *
+ * @param {string} sourceDataUrl - the stored clean image
+ * @returns {Promise<{dataUrl: string, mutations: Array<{type: string, label: string, value: string}>}>}
+ */
+export function mutateImageWithMeta(sourceDataUrl) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onerror = () => reject(new Error('Mutation: failed to load source image'));
@@ -158,9 +169,12 @@ function mutateImage(sourceDataUrl) {
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, targetW, targetH);
 
-        // ---- Gather mutations ----
+        // ---- Gather mutations and track their values ----
         /** @type {string[]} */
         const active = [];
+        /** @type {Array<{type: string, label: string, value: string}>} */
+        const mutations = [];
+
         if (Math.random() < cfg.MUTATION_CHANCE_BRIGHTNESS) active.push('brightness');
         if (Math.random() < cfg.MUTATION_CHANCE_CONTRAST)   active.push('contrast');
         if (Math.random() < cfg.MUTATION_CHANCE_SATURATION) active.push('saturation');
@@ -176,21 +190,25 @@ function mutateImage(sourceDataUrl) {
             case 'brightness': {
               const v = lerp(cfg.MUTATION_BRIGHTNESS_RANGE, Math.random()).toFixed(2);
               filters.push(`brightness(${v})`);
+              mutations.push({ type: 'brightness', label: '亮度', value: `×${v}` });
               break;
             }
             case 'contrast': {
               const v = lerp(cfg.MUTATION_CONTRAST_RANGE, Math.random()).toFixed(2);
               filters.push(`contrast(${v})`);
+              mutations.push({ type: 'contrast', label: '对比度', value: `×${v}` });
               break;
             }
             case 'saturation': {
               const v = lerp(cfg.MUTATION_SATURATION_RANGE, Math.random()).toFixed(2);
               filters.push(`saturate(${v})`);
+              mutations.push({ type: 'saturation', label: '饱和度', value: `×${v}` });
               break;
             }
             case 'hue': {
               const v = lerp(cfg.MUTATION_HUE_RANGE, Math.random()).toFixed(1);
               filters.push(`hue-rotate(${v}deg)`);
+              mutations.push({ type: 'hue', label: '色相', value: `${v}°` });
               break;
             }
           }
@@ -232,7 +250,19 @@ function mutateImage(sourceDataUrl) {
         const q = lerp(cfg.MUTATION_QUALITY_RANGE, Math.random()).toFixed(3);
         const dataUrl = canvas.toDataURL('image/jpeg', Number(q));
 
-        resolve(dataUrl);
+        // ---- Record transform mutations ----
+        if (flip === -1) {
+          mutations.push({ type: 'flip', label: '水平翻转', value: '是' });
+        }
+        if (doRotate) {
+          mutations.push({ type: 'rotate', label: '旋转', value: `${angle.toFixed(1)}°` });
+        }
+        if (jitter) {
+          mutations.push({ type: 'scale', label: '缩放', value: `×${sx.toFixed(2)} / ×${sy.toFixed(2)}` });
+        }
+        mutations.push({ type: 'quality', label: 'JPEG质量', value: `${Math.round(Number(q) * 100)}%` });
+
+        resolve({ dataUrl, mutations });
       } catch (e) {
         reject(e);
       }

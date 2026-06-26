@@ -132,6 +132,30 @@ export const icons = {
   loader:
     svgIcon('<line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/>', 13),
 
+  /** Zap / spark — re-apply mutations (lightning bolt metaphor) */
+  sparkles:
+    svgIcon('<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>'),
+
+  /** Crosshair / target — face detection visualization */
+  crosshair:
+    svgIcon('<circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/>'),
+
+  /** Send / paper plane — push mutated image to camera */
+  send:
+    svgIcon('<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>'),
+
+  /** Shuffle — random image selection */
+  shuffle:
+    svgIcon('<polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/>'),
+
+  /** Chevron left — previous image */
+  chevronLeft:
+    svgIcon('<polyline points="15 18 9 12 15 6"/>'),
+
+  /** Chevron right — next image */
+  chevronRight:
+    svgIcon('<polyline points="9 18 15 12 9 6"/>'),
+
   /** Tag — version label */
   tag:
     svgIcon('<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>', 13),
