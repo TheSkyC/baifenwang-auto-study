@@ -444,6 +444,21 @@ let _stats = {};
 /** ID of the most recently picked image (set by pickImage, read by recordLastPickResult). */
 let _lastPickedId = null;
 
+/**
+ * ID of the most recently successful image — excluded from the next pick to
+ * avoid back-to-back reuse of the same face.  Controlled by NO_REPEAT_ENABLED
+ * and NO_REPEAT_MODE config.
+ */
+let _lastSuccessId = null;
+
+/**
+ * Set of all image IDs that passed verification in the current page session.
+ * When NO_REPEAT_MODE is 'session', these IDs are excluded from all future
+ * picks.  In-memory only — resets on page reload.
+ * @type {Set<number>}
+ */
+let _sessionSuccessIds = new Set();
+
 /** Whether init() has completed */
 let _ready = false;
 
@@ -670,7 +685,7 @@ function computeWeights() {
  */
 function weightedRandomIndex(weights) {
   const total = weights.reduce((a, b) => a + b, 0);
-  if (total <= 0) return Math.floor(Math.random() * _meta.entries.length);
+  if (total <= 0) return Math.floor(Math.random() * weights.length);
 
   let target = Math.random() * total;
   for (let i = 0; i < weights.length; i++) {
@@ -745,6 +760,31 @@ export async function pickImage() {
     throw err;
   }
 
+  // ── No-repeat exclusion ──────────────────────────────────────────────
+  // Avoid reusing faces that already passed verification this session.
+  // Build a list of eligible entry indices; fall back to the full pool
+  // if every image is excluded (tiny pool edge case).
+  const excludeIds = new Set();
+  if (IMAGE_POOL_CONFIG.NO_REPEAT_ENABLED) {
+    if (_lastSuccessId != null) excludeIds.add(_lastSuccessId);
+    if (IMAGE_POOL_CONFIG.NO_REPEAT_MODE === 'session') {
+      for (const id of _sessionSuccessIds) excludeIds.add(id);
+    }
+  }
+
+  /** @type {number[]} — indices into _meta.entries that are eligible for selection */
+  let eligibleIndices = [];
+  for (let i = 0; i < _meta.entries.length; i++) {
+    if (!excludeIds.has(_meta.entries[i].id)) {
+      eligibleIndices.push(i);
+    }
+  }
+
+  const usingFallback = eligibleIndices.length === 0;
+  if (usingFallback) {
+    eligibleIndices = _meta.entries.map((_, i) => i);
+  }
+
   const maxRetries = 3;
   const tried = new Set();
 
@@ -752,16 +792,20 @@ export async function pickImage() {
   const useWeighted = getSetting('dynamicWeight', true);
   const weights = useWeighted ? computeWeights() : null;
 
-  for (let attempt = 0; attempt < maxRetries && tried.size < _meta.entries.length; attempt++) {
-    // Weighted or uniform random selection
-    let idx;
+  for (let attempt = 0; attempt < maxRetries && tried.size < eligibleIndices.length; attempt++) {
+    // Weighted or uniform random selection over eligible indices
+    let eligiblePos;
     do {
-      idx = useWeighted
-        ? weightedRandomIndex(weights)
-        : Math.floor(Math.random() * _meta.entries.length);
-    } while (tried.has(idx));
-    tried.add(idx);
+      if (useWeighted) {
+        const eligibleWeights = eligibleIndices.map((i) => weights[i]);
+        eligiblePos = weightedRandomIndex(eligibleWeights);
+      } else {
+        eligiblePos = Math.floor(Math.random() * eligibleIndices.length);
+      }
+    } while (tried.has(eligiblePos));
+    tried.add(eligiblePos);
 
+    const idx = eligibleIndices[eligiblePos];
     const entry = _meta.entries[idx];
     const adapter = getStorageAdapter();
     const raw = await adapter.get(imgKey(entry.id));
@@ -770,7 +814,8 @@ export async function pickImage() {
       // Record usage stats
       _lastPickedId = entry.id;
       const stats = getOrCreateStats(entry.id);
-      info(`Picked image #${entry.id} "${entry.name}" (tier=${getQualityTier(stats)}, prevUses=${stats.totalUses})`);
+      const excludedNote = (usingFallback && excludeIds.has(entry.id)) ? ' (fallback — was excluded)' : '';
+      info(`Picked image #${entry.id} "${entry.name}" (tier=${getQualityTier(stats)}, prevUses=${stats.totalUses}${excludedNote})`);
       stats.totalUses++;
       stats.lastUsedAt = Date.now();
       persistStats(); // fire-and-forget
@@ -1021,8 +1066,10 @@ export async function removeImage(id) {
   await removeImageData(entry.id);
   try { await getStorageAdapter().remove(imgOrigKey(entry.id)); } catch (_) { /* ignore */ }
   _meta.entries.splice(idx, 1);
-  // Clean up stats for the removed image
+  // Clean up stats and no-repeat state for the removed image
   delete _stats[entry.id];
+  if (_lastSuccessId === entry.id) _lastSuccessId = null;
+  _sessionSuccessIds.delete(entry.id);
   await persistMeta();
   await persistStats();
   info(`Removed image "${entry.name}" (id=${id})`);
@@ -1045,6 +1092,8 @@ export async function clearPool() {
   _meta.nextId = 0;
   _stats = {};
   _lastPickedId = null;
+  _lastSuccessId = null;
+  _sessionSuccessIds.clear();
   await persistMeta();
   await persistStats();
   info('Image pool cleared');
@@ -1229,6 +1278,9 @@ export function recordImageResult(id, success) {
   if (success) {
     stats.successes++;
     stats.lastResult = 'success';
+    // Track for no-repeat exclusion so this face won't be reused immediately
+    _lastSuccessId = id;
+    _sessionSuccessIds.add(id);
   } else {
     stats.failures++;
     stats.lastResult = 'fail';
@@ -1271,6 +1323,23 @@ export function getImageStats(id) {
  */
 export function getAllStats() {
   return { ..._stats };
+}
+
+/**
+ * Reset the no-repeat exclusion state so all images are eligible for
+ * picking again.  Call when starting a new course or when the user
+ * explicitly requests a fresh verification cycle.
+ *
+ * Does NOT affect quality scores — only clears the in-memory exclusion
+ * set (_lastSuccessId and _sessionSuccessIds).
+ */
+export function resetNoRepeatState() {
+  const hadState = _lastSuccessId != null || _sessionSuccessIds.size > 0;
+  _lastSuccessId = null;
+  _sessionSuccessIds.clear();
+  if (hadState) {
+    debug('No-repeat state reset — all images are eligible again');
+  }
 }
 
 /**

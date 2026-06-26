@@ -30,7 +30,7 @@ import { AUTO_CONFIG, jitterMs, jitterMsFloor } from '../config.js';
 import { isFaceAutoActive, getSetting, onChange } from '../settings.js';
 import { info, debug, warn } from '../utils/logger.js';
 import { appendLog, setStatus } from '../ui/builder.js';
-import { recordLastPickResult } from '../pool/image-pool.js';
+import { recordLastPickResult, resetNoRepeatState } from '../pool/image-pool.js';
 import { registerBodyMutationHandler } from '../utils/dom-observer.js';
 
 let observerUnsubscribe = null;
@@ -941,6 +941,9 @@ export function startAutoProcessor() {
     return;
   }
 
+  // Fresh start — clear no-repeat exclusion so all images are eligible
+  resetNoRepeatState();
+
   // Initial scan — check if modal is already present
   checkAndStartSequence();
 
@@ -1014,6 +1017,7 @@ export function resetAutoSequence() {
   retryAttempt = 0;
   retryExhausted = false;
   compareAttempts = 0;
+  resetNoRepeatState();
   debug('Auto-processor: sequence reset for camera toggle');
 }
 

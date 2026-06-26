@@ -81,6 +81,29 @@ export const IMAGE_POOL_CONFIG = {
     HIGH_QUALITY_WEIGHT: 2.5,
   },
 
+  // ---- No-repeat: avoid reusing successfully-verified faces ----
+  /**
+   * When enabled, images that recently passed face verification are excluded
+   * from subsequent picks so the same face isn't sent twice in a row.
+   *
+   * Edge case handling:
+   *  - If ALL pool images are excluded (tiny pool, e.g. 1–2 images), fall
+   *    back to the full pool with a debug-level log entry.
+   *  - If an excluded image is removed from the pool, its exclusion is
+   *    automatically cleaned up.
+   */
+  NO_REPEAT_ENABLED: true,
+  /**
+   * Exclusion scope:
+   *  - 'session': exclude ALL images that succeeded during the current page
+   *    session.  Best for long courses with many verification checkpoints —
+   *    each face is used at most once per session.
+   *  - 'last': exclude only the SINGLE most-recently-successful image.
+   *    Safer for tiny pools (2–3 images) where session mode would exhaust
+   *    the pipeline too quickly.
+   */
+  NO_REPEAT_MODE: 'session',
+
   // ---- Storage ----
   /** Storage key prefix (shared across all storage backends) */
   STORAGE_KEY_PREFIX: 'bfw_img_',
