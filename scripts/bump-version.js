@@ -9,11 +9,13 @@
  * Files updated:
  *   1. src/config.js            — SCRIPT_VERSION constant
  *   2. package.json             — npm version field
- *   3. metablock.json           — @version in userscript header
- *   4. rollup.config.js         — metablock override version
- *   5. rollup.min.config.js     — metablock override version (min build)
- *   6. worker/package.json      — worker npm version
- *   7. worker/src/index.js      — LATEST_VERSION + RELEASES catalog
+ *   3. package-lock.json        — npm lockfile version (root + "" entry)
+ *   4. metablock.json           — @version in userscript header
+ *   5. rollup.config.js         — metablock override version
+ *   6. rollup.min.config.js     — metablock override version (min build)
+ *   7. worker/package.json      — worker npm version
+ *   8. worker/package-lock.json — worker lockfile version (root + "" entry)
+ *   9. worker/src/index.js      — LATEST_VERSION + RELEASES catalog
  *
  * The worker gets a NEW release entry prepended to RELEASES (historical entries
  * are preserved).  The changelog in the new entry is a TODO placeholder — fill
@@ -228,6 +230,52 @@ function updateWorkerPackageJSON(cur, next) {
   return true;
 }
 
+function updatePackageLock(cur, next) {
+  const relPath = 'package-lock.json';
+  let content;
+  try {
+    content = readFile(relPath).content;
+  } catch {
+    console.warn(`  WARN  package-lock.json not found — skipping`);
+    return false;
+  }
+  const pkg = JSON.parse(content);
+  if (pkg.version === next && pkg.packages?.['']?.version === next) {
+    console.log(`  SKIP package-lock.json — already ${next}`);
+    return false;
+  }
+  pkg.version = next;
+  if (pkg.packages?.['']) {
+    pkg.packages[''].version = next;
+  }
+  writeFile(relPath, JSON.stringify(pkg, null, 2) + '\n');
+  console.log(`  OK   package-lock.json: ${cur} → ${next}`);
+  return true;
+}
+
+function updateWorkerPackageLock(cur, next) {
+  const relPath = 'worker/package-lock.json';
+  let content;
+  try {
+    content = readFile(relPath).content;
+  } catch {
+    console.warn(`  WARN  worker/package-lock.json not found — skipping`);
+    return false;
+  }
+  const pkg = JSON.parse(content);
+  if (pkg.version === next && pkg.packages?.['']?.version === next) {
+    console.log(`  SKIP worker/package-lock.json — already ${next}`);
+    return false;
+  }
+  pkg.version = next;
+  if (pkg.packages?.['']) {
+    pkg.packages[''].version = next;
+  }
+  writeFile(relPath, JSON.stringify(pkg, null, 2) + '\n');
+  console.log(`  OK   worker/package-lock.json: ${cur} → ${next}`);
+  return true;
+}
+
 function updateWorkerIndex(cur, next) {
   const relPath = 'worker/src/index.js';
   let content;
@@ -305,10 +353,12 @@ console.log(`  ${currentVersion} → ${newVersion}\n`);
 const operations = [
   ['src/config.js',            updateConfigJS],
   ['package.json',             updatePackageJSON],
+  ['package-lock.json',        updatePackageLock],
   ['metablock.json',           updateMetablockJSON],
   ['rollup.config.js',         updateRollupConfig('rollup.config.js', 'rollup.config.js')],
   ['rollup.min.config.js',     updateRollupConfig('rollup.min.config.js', 'rollup.min.config.js')],
   ['worker/package.json',      updateWorkerPackageJSON],
+  ['worker/package-lock.json', updateWorkerPackageLock],
   ['worker/src/index.js',      updateWorkerIndex],
 ];
 

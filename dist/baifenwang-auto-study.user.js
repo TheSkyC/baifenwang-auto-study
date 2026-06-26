@@ -2,7 +2,7 @@
 // @name           百分网自动刷课助手
 // @description    自动完成百分网人脸验证与课程播放，支持防切屏检测与人脸图片管理
 // @namespace      https://greasyfork.org/baifenwang-auto-study
-// @version        1.0.0
+// @version        1.1.0
 // @author         TheSkyC
 // @license        MIT
 // @homepageURL    https://github.com/TheSkyC/baifenwang-auto-study
@@ -199,7 +199,7 @@
 
   // Script metadata
   const SCRIPT_NAME = '百分网自动刷课助手';
-  const SCRIPT_VERSION = '1.0.0';
+  const SCRIPT_VERSION = '1.1.0';
   const GITHUB_URL = 'https://github.com/TheSkyC/baifenwang-auto-study';
   const UPDATE_API_URL = 'https://baifenwang-auto-study.tarxf.com';
 
@@ -4796,7 +4796,7 @@
     border-radius: 4px;
     cursor: pointer;
     color: #a6adc8;
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1;
     transition: color 0.2s, background 0.2s;
     position: relative;
@@ -4900,6 +4900,12 @@
   .bfw-update-card-meta .version-badge {
     display: inline-flex;
     align-items: center;
+  }
+
+  /* Common visual badge style — used by both the <a> link and plain <span> */
+  .bfw-version-badge-link {
+    display: inline-flex;
+    align-items: center;
     gap: 3px;
     background: rgba(250, 179, 135, 0.12);
     color: #fab387;
@@ -4907,11 +4913,21 @@
     padding: 1px 6px;
     font-size: 11px;
     font-weight: 600;
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+
+  a.bfw-version-badge-link {
+    cursor: pointer;
+  }
+
+  a.bfw-version-badge-link:hover {
+    background: rgba(250, 179, 135, 0.22);
+    color: #fab387;
   }
 
   .bfw-update-card-meta .arrow {
-    color: #45475a;
-    font-size: 10px;
+    color: #6c7086;
   }
 
   /* Changelog list inside the card */
@@ -4979,13 +4995,13 @@
   }
 
   .bfw-changelog-text .desc {
-    display: block;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
     font-size: 10px;
     color: #6c7086;
     margin-top: 1px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   /* Card action buttons */
@@ -5014,9 +5030,9 @@
     border-color: rgba(250, 179, 135, 0.5);
   }
 
-  .bfw-update-release-btn {
+  .bfw-update-ignore-btn {
     background: none;
-    border: 1px solid rgba(69, 71, 90, 0.6);
+    border: 1px solid rgba(69, 71, 90, 0.4);
     color: #6c7086;
     border-radius: 5px;
     padding: 5px 10px;
@@ -5026,9 +5042,29 @@
     white-space: nowrap;
   }
 
-  .bfw-update-release-btn:hover {
+  .bfw-update-ignore-btn:hover {
     color: #a6adc8;
-    border-color: #45475a;
+    border-color: #585b70;
+  }
+
+  .bfw-update-recheck-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: #585b70;
+    border-radius: 3px;
+    padding: 2px;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+    flex-shrink: 0;
+    margin-left: 2px;
+  }
+
+  .bfw-update-recheck-btn:hover {
+    color: #a6adc8;
+    background: rgba(137, 180, 250, 0.08);
   }
 `;
 
@@ -5101,6 +5137,10 @@
     /** Refresh/shuffle — swap the displayed pool image */
     refresh:
       svgIcon('<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>'),
+
+    /** Arrow-right — version arrow */
+    arrowRight:
+      svgIcon('<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>', 13),
 
     /** Camera toggle — switch between real and fake camera */
     cameraToggle:
@@ -7165,11 +7205,32 @@
    *     if a fresh cached result exists.
    *   - Network/parse errors are silently swallowed — never interrupts the
    *     main script flow.
-   *   - Exposes a single public API: checkForUpdate(callback).
+   *   - Exposes public APIs: checkForUpdate, invalidateUpdateCache,
+   *     ignoreVersion, clearIgnoredVersion.
    */
 
 
+  /**
+   * Compare two semver strings (e.g. "1.2.3").
+   * Returns negative if a < b, zero if equal, positive if a > b.
+   * Missing or non-numeric segments are treated as 0.
+   * @param {string} a
+   * @param {string} b
+   * @returns {number}
+   */
+  function compareSemver(a, b) {
+    const pa = (a).split('.').map(Number);
+    const pb = (b ?? '').split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+      const na = Number.isFinite(pa[i]) ? pa[i] : 0;
+      const nb = Number.isFinite(pb[i]) ? pb[i] : 0;
+      if (na !== nb) return na - nb;
+    }
+    return 0;
+  }
+
   const CACHE_KEY = 'bfw_update_cache';
+  const IGNORE_KEY = 'bfw_ignored_version';
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
   const CHECK_DELAY_MS = 5000;
   const FETCH_TIMEOUT_MS = 8000;
@@ -7182,6 +7243,7 @@
    * @property {Array<{type: string, title: string, description?: string}>} changelog
    * @property {string}  releaseUrl
    * @property {string}  checkedAt  — ISO timestamp
+   * @property {string}  [ignoredVersion] — set when the user has dismissed this version
    */
 
   /**
@@ -7196,6 +7258,11 @@
       const parsed = JSON.parse(raw);
       if (!parsed?.checkedAt) return null;
       if (Date.now() - new Date(parsed.checkedAt).getTime() > CACHE_TTL_MS) return null;
+      // If the user has already updated to or past the version that was
+      // flagged as new, discard the stale cache entry.
+      if (parsed.hasUpdate && parsed.latestVersion && compareSemver(SCRIPT_VERSION, parsed.latestVersion) >= 0) {
+        return null;
+      }
       return parsed;
     } catch {
       return null;
@@ -7218,6 +7285,36 @@
    */
   function invalidateUpdateCache() {
     getStorageAdapter().remove(CACHE_KEY).catch(() => { /* non-fatal */ });
+  }
+
+  /**
+   * Get the currently ignored version string, or null if none.
+   * @returns {Promise<string|null>}
+   */
+  async function getIgnoredVersion() {
+    try {
+      return await getStorageAdapter().get(IGNORE_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Persist a version string as ignored (user dismissed this version).
+   * @param {string} version
+   */
+  async function ignoreVersion(version) {
+    try {
+      await getStorageAdapter().set(IGNORE_KEY, version);
+    } catch { /* non-fatal */ }
+  }
+
+  /**
+   * Clear the ignored version record.  Exported so the UI can reset
+   * the ignore state when the user manually rechecks or a new version appears.
+   */
+  function clearIgnoredVersion() {
+    getStorageAdapter().remove(IGNORE_KEY).catch(() => { /* non-fatal */ });
   }
 
   /**
@@ -7280,6 +7377,26 @@
   }
 
   /**
+   * Apply the ignore filter: if the result has an update but the user has
+   * dismissed that exact version, treat it as no update with ignoredVersion set.
+   * This is applied on both cached and freshly-fetched results.
+   * @param {UpdateResult} result
+   * @returns {Promise<UpdateResult>}
+   */
+  async function applyIgnoreFilter(result) {
+    if (!result.hasUpdate) return result;
+    const ignored = await getIgnoredVersion();
+    if (ignored && ignored === result.latestVersion) {
+      return {
+        ...result,
+        hasUpdate: false,
+        ignoredVersion: result.latestVersion,
+      };
+    }
+    return result;
+  }
+
+  /**
    * Check for updates and invoke the callback when a result is available.
    * Uses the 24-hour cache; forces a fresh fetch only when cache is stale.
    *
@@ -7290,21 +7407,30 @@
    * @param {Function} [opts.onError]  — called when the check fails (network/timeout)
    */
   function checkForUpdate(onResult, { force = false, delay = CHECK_DELAY_MS, onError } = {}) {
+    // Serve from cache immediately (localStorage is synchronous, no need to wait).
+    if (!force) {
+      readCache().then(async (cached) => {
+        if (cached) {
+          const filtered = await applyIgnoreFilter(cached);
+          debug('[update] serving from cache:', filtered.latestVersion, 'hasUpdate:', filtered.hasUpdate);
+          onResult(filtered);
+        }
+      });
+    }
+
+    // Deferred network fetch — only when cache misses or force=true.
     setTimeout(async () => {
       if (!force) {
         const cached = await readCache();
-        if (cached) {
-          debug('[update] serving from cache:', cached.latestVersion);
-          onResult(cached);
-          return;
-        }
+        if (cached) return; // already served immediately above
       }
 
       try {
         const result = await fetchUpdateInfo();
         await writeCache(result);
-        debug('[update] fetched:', result.latestVersion, 'hasUpdate:', result.hasUpdate);
-        onResult(result);
+        const filtered = await applyIgnoreFilter(result);
+        debug('[update] fetched:', filtered.latestVersion, 'hasUpdate:', filtered.hasUpdate);
+        onResult(filtered);
       } catch (err) {
         debug('[update] check failed:', err?.message);
         onError?.();
@@ -7840,11 +7966,26 @@
   };
 
   /**
+   * Map short form types from the Worker API to canonical internal types.
+   * Worker uses conventional-commit abbreviations (feat, change, perf);
+   * the front-end expects full names for CSS class and label lookup.
+   * Types not listed here pass through unchanged (e.g. "fix", "security").
+   * @type {Record<string, string>}
+   */
+  const TYPE_ALIASES = {
+    feat:    'feature',
+    change:  'improvement',
+    perf:    'performance',
+  };
+
+  /**
    * Render the changelog card DOM.
    * @param {import('../utils/update-checker.js').UpdateResult} result
+   * @param {() => void} onRecheck — called when the user clicks "重新检测"
+   * @param {() => void} onIgnore  — called when the user clicks "忽略此版本"
    * @returns {HTMLElement}
    */
-  function createUpdateCard(result) {
+  function createUpdateCard(result, onRecheck, onIgnore) {
     const card = document.createElement('div');
     card.className = 'bfw-update-card';
 
@@ -7858,18 +7999,36 @@
     </div>
     <div class="bfw-update-card-meta">
       <span>v${SCRIPT_VERSION}</span>
-      <span class="arrow">→</span>
-      <span class="version-badge">${icons.tag} <span class="bfw-latest-ver"></span></span>
+      <span class="arrow">${icons.arrowRight}</span>
+      <span class="version-badge"></span>
+      <button class="bfw-update-recheck-btn" title="重新检测">${icons.refresh}</button>
     </div>
     <div class="bfw-update-changelog"></div>
     <div class="bfw-update-card-actions">
+      <button class="bfw-update-ignore-btn">忽略此版本</button>
       <button class="bfw-update-install-btn">立即安装</button>
     </div>
   `;
 
-    // Populate remote-sourced content via textContent / DOM APIs (no innerHTML for untrusted data)
-    card.querySelector('.bfw-latest-ver').textContent = `v${result.latestVersion}`;
+    // ---- Version badge — clickable when releaseUrl exists ----
+    const versionBadge = card.querySelector('.version-badge');
+    if (result.releaseUrl) {
+      const link = document.createElement('a');
+      link.className = 'bfw-version-badge-link';
+      link.href = result.releaseUrl;
+      link.target = '_blank';
+      link.title = '查看发布说明';
+      link.innerHTML = `${icons.tag} <span class="bfw-latest-ver"></span>`;
+      link.querySelector('.bfw-latest-ver').textContent = `v${result.latestVersion}`;
+      versionBadge.appendChild(link);
+    } else {
+      const span = document.createElement('span');
+      span.className = 'bfw-version-badge-link';
+      span.innerHTML = `${icons.tag} <span class="bfw-latest-ver">v${result.latestVersion}</span>`;
+      versionBadge.appendChild(span);
+    }
 
+    // ---- Changelog entries ----
     const changelogEl = card.querySelector('.bfw-update-changelog');
     const entries = result.changelog.slice(0, 8);
     if (entries.length === 0) {
@@ -7883,9 +8042,10 @@
         row.className = 'bfw-changelog-entry';
 
         const typeSpan = document.createElement('span');
-        const safeType = /^[a-z]+$/.test(e.type) ? e.type : 'internal';
-        typeSpan.className = `bfw-changelog-type bfw-type-${safeType}`;
-        typeSpan.textContent = TYPE_LABELS[e.type] ?? e.type;
+        const rawType = /^[a-z]+$/.test(e.type) ? e.type : 'internal';
+        const canonicalType = TYPE_ALIASES[rawType] || rawType;
+        typeSpan.className = `bfw-changelog-type bfw-type-${canonicalType}`;
+        typeSpan.textContent = TYPE_LABELS[canonicalType] ?? e.type;
 
         const textSpan = document.createElement('span');
         textSpan.className = 'bfw-changelog-text';
@@ -7903,24 +8063,28 @@
       });
     }
 
-    const actionsEl = card.querySelector('.bfw-update-card-actions');
-
-    if (result.releaseUrl) {
-      const releaseBtn = document.createElement('button');
-      releaseBtn.className = 'bfw-update-release-btn';
-      releaseBtn.textContent = '发布说明';
-      releaseBtn.addEventListener('click', () => window.open(result.releaseUrl, '_blank'));
-      actionsEl.appendChild(releaseBtn);
-    }
+    // ---- Button bindings ----
 
     // Close button
     card.querySelector('.bfw-update-card-close').addEventListener('click', () => {
       card.remove();
     });
 
-    // Install button — opens download URL (triggers script manager install dialog)
+    // Install button
     card.querySelector('.bfw-update-install-btn').addEventListener('click', () => {
       if (result.downloadUrl) window.open(result.downloadUrl, '_blank');
+      card.remove();
+    });
+
+    // Ignore button
+    card.querySelector('.bfw-update-ignore-btn').addEventListener('click', () => {
+      onIgnore();
+      card.remove();
+    });
+
+    // Recheck button
+    card.querySelector('.bfw-update-recheck-btn').addEventListener('click', () => {
+      onRecheck();
       card.remove();
     });
 
@@ -7956,32 +8120,6 @@
     btn.innerHTML = `<span class="bfw-icon-spin">${icons.loader}</span>`;
     wrapper.appendChild(btn);
 
-    // Called when checkForUpdate resolves
-    const onResult = (result) => {
-
-      if (!result.hasUpdate) {
-        // Up to date — show subtle version tag, no pulse
-        btn.className = 'bfw-update-btn';
-        btn.title = `已是最新版本 v${result.latestVersion}，点击重新检测`;
-        btn.innerHTML = icons.tag;
-        btn.onclick = (e) => { e.stopPropagation(); triggerRecheck(); };
-        return;
-      }
-
-      // Has update — orange pulsing badge
-      btn.className = 'bfw-update-btn has-update';
-      btn.title = `发现新版本 v${result.latestVersion}，点击查看`;
-      btn.innerHTML = `${icons.arrowUpCircle} <span style="font-size:10px;font-weight:600;">v${result.latestVersion}</span>`;
-
-      // Use onclick (not addEventListener) so re-check via contextmenu never stacks listeners
-      btn.onclick = (e) => {
-        e.stopPropagation();
-        const existing = wrapper.querySelector('.bfw-update-card');
-        if (existing) { existing.remove(); return; }
-        wrapper.appendChild(createUpdateCard(result));
-      };
-    };
-
     // triggerRecheck and onError are mutually referencing — use let to allow forward reference
     let triggerRecheck;
 
@@ -7997,8 +8135,51 @@
       btn.title = '正在检测更新…';
       btn.innerHTML = `<span class="bfw-icon-spin">${icons.loader}</span>`;
       btn.onclick = null;
+      clearIgnoredVersion();
       invalidateUpdateCache();
       checkForUpdate(onResult, { force: true, delay: 0, onError });
+    };
+
+    // Called when checkForUpdate resolves
+    const onResult = (result) => {
+
+      if (!result.hasUpdate) {
+        // Quiet badge — up to date or version ignored
+        btn.className = 'bfw-update-btn';
+        if (result.ignoredVersion) {
+          btn.title = `v${result.ignoredVersion} 已忽略，点击重新检测`;
+          btn.innerHTML = icons.tag;
+        } else {
+          btn.title = `已是最新版本 v${result.latestVersion}，点击重新检测`;
+          btn.innerHTML = icons.tag;
+        }
+        btn.onclick = (e) => { e.stopPropagation(); triggerRecheck(); };
+        return;
+      }
+
+      // Has update — orange pulsing badge
+      btn.className = 'bfw-update-btn has-update';
+      btn.title = `发现新版本 v${result.latestVersion}，点击查看`;
+      btn.innerHTML = `${icons.arrowUpCircle}<span style="font-weight:600;">v${result.latestVersion}</span>`;
+
+      // Use onclick (not addEventListener) so re-check via contextmenu never stacks listeners
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const existing = wrapper.querySelector('.bfw-update-card');
+        if (existing) { existing.remove(); return; }
+
+        const onIgnore = () => {
+          ignoreVersion(result.latestVersion);
+          // Re-apply the ignore filter and update badge state
+          onResult({
+            ...result,
+            hasUpdate: false,
+            ignoredVersion: result.latestVersion,
+          });
+        };
+
+        wrapper.appendChild(createUpdateCard(result, triggerRecheck, onIgnore));
+      };
     };
 
     checkForUpdate(onResult, { onError });

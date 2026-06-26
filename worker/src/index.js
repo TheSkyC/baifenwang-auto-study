@@ -25,18 +25,38 @@
 // Embedded release catalog — update on each release
 // ---------------------------------------------------------------------------
 
-const LATEST_VERSION = '1.0.0';
+const LATEST_VERSION = '1.1.0';
 const GITHUB_REPO = 'TheSkyC/baifenwang-auto-study';
 const DOWNLOAD_PATH = '/latest.user.js';
 
 /** @type {Record<string, object>} */
 const RELEASES = {
+  '1.1.0': {
+    version: '1.1.0',
+    publishedAt: '2026-06-26T00:00:00Z',
+    downloadUrl: `https://github.com/${GITHUB_REPO}/releases/download/v1.1.0/baifenwang-auto-study.user.js`,
+    changelog: [
+      { type: 'feat', title: '学习进度追踪系统', description: '记录每次学习会话，今日/本周/全部三级统计，课程明细列表，七日趋势图' },
+      { type: 'feat', title: '版本更新检查系统', description: '自动检测新版本，角标提示与更新日志，支持忽略版本与手动重检' },
+      { type: 'feat', title: '页面版本兼容性检测', description: '自动识别页面版本号并给出四级兼容性评级，右下角显示版本号对照及兼容状态' },
+      { type: 'feat', title: '图片池动态权重开关', description: '一键开关加权选图功能，状态自动保存' },
+      { type: 'fix', title: '修复人脸比对无限重试', description: '增加超时保护，避免比对失败后陷入无限重试循环' },
+      { type: 'fix', title: '修复人脸比对误判', description: '消除服务器处理延迟导致的误报，失败后自动渐进式重试' },
+      { type: 'fix', title: '修复章节检测失效', description: '章节切换后状态过期导致无法识别当前章节时，自动降级到 DOM 检测' },
+      { type: 'fix', title: '修复 Firefox 兼容性', description: '修复视频流获取失败、图片边缘黑边、进度条溢出等问题' },
+      { type: 'change', title: '面板交互优化', description: '点击把手切换展开收起、点击外部自动关闭、统计区域整行可点击' },
+      { type: 'perf', title: '性能优化', description: '合并重复 DOM 监听、复用 Canvas 实例、降低绘制帧率至 15fps、缓存组件树遍历路径' },
+    ],
+    source: {
+      releaseUrl: `https://github.com/${GITHUB_REPO}/releases/tag/v1.1.0`,
+    },
+  },
   '1.0.0': {
     version: '1.0.0',
-    publishedAt: '2025-06-25T00:00:00Z',
+    publishedAt: '2026-06-23T00:00:00Z',
     downloadUrl: `https://github.com/${GITHUB_REPO}/releases/download/v1.0.0/baifenwang-auto-study.user.js`,
     changelog: [
-      { type: 'feat', title: 'Initial release', description: 'First public release of baifenwang-auto-study.' },
+      { type: 'feat', title: '首次发布', description: '百分网自动刷课助手首次公开发布，包含视频流拦截、图片池、人脸验证自动化、自动刷课、防切屏检测等核心功能。' },
     ],
     source: {
       releaseUrl: `https://github.com/${GITHUB_REPO}/releases/tag/v1.0.0`,
