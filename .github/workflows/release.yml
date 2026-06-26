@@ -66,17 +66,27 @@ jobs:
             ```
 
       # ── Upload to R2 ──────────────────────────────────────────────────────
-      - name: Upload versioned artifact to R2
+      - name: Install aws-cli
         continue-on-error: true
-        uses: cloudflare/wrangler-action@v3.14.1
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: >
-            r2 object put
-            baifenwang-releases/${{ github.ref_name }}/baifenwang-auto-study.user.js
-            --file dist/baifenwang-auto-study.user.js
-            --content-type "application/javascript; charset=utf-8"
+        run: |
+          curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -q awscliv2.zip
+          sudo ./aws/install --update
+          aws --version
+
+      - name: Upload to R2
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION:    auto
+          R2_ENDPOINT:           ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET:             ${{ secrets.R2_BUCKET }}
+        run: |
+          aws s3 cp "dist/baifenwang-auto-study.user.js" "s3://${R2_BUCKET}/userscripts/${{ github.ref_name }}/baifenwang-auto-study.user.js" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --content-type application/javascript \
+            --no-progress
 
       - name: Update latest pointer in R2
         if: |
@@ -84,15 +94,32 @@ jobs:
           !contains(github.ref_name, 'beta') &&
           !contains(github.ref_name, 'rc')
         continue-on-error: true
-        uses: cloudflare/wrangler-action@v3.14.1
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: >
-            r2 object put
-            baifenwang-releases/latest/baifenwang-auto-study.user.js
-            --file dist/baifenwang-auto-study.user.js
-            --content-type "application/javascript; charset=utf-8"
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION:    auto
+          R2_ENDPOINT:           ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET:             ${{ secrets.R2_BUCKET }}
+        run: |
+          aws s3 cp "dist/baifenwang-auto-study.user.js" "s3://${R2_BUCKET}/userscripts/latest/baifenwang-auto-study.user.js" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --content-type application/javascript \
+            --no-progress
+
+      - name: Verify R2 upload
+        if: success()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION:    auto
+          R2_ENDPOINT:           ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET:             ${{ secrets.R2_BUCKET }}
+        run: |
+          echo "Verifying versioned artifact exists in R2..."
+          aws s3 ls "s3://${R2_BUCKET}/userscripts/${{ github.ref_name }}/baifenwang-auto-study.user.js" \
+            --endpoint-url "${R2_ENDPOINT}" \
+            --no-progress
 
       # ── Inject new release into Worker catalog ────────────────────────────
       - name: Compute SHA-256 and file size
