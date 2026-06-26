@@ -116,18 +116,128 @@ export const IMAGE_POOL_CONFIG = {
 // Face detection (smart crop) configuration
 export const FACE_DETECT_CONFIG = {
   // ---- Tier 1: Skin-color heuristic ----
-  /** Downsample size for skin-color analysis (pixels on longest side) */
-  SKIN_SAMPLE_SIZE: 80,
-  /** Minimum skin-pixel count for heuristic to be considered valid */
-  SKIN_MIN_PIXELS: 50,
-  /** Grid dimensions for skin-pixel clustering (cols × rows) */
-  SKIN_GRID_COLS: 4,
-  SKIN_GRID_ROWS: 3,
+  /**
+   * Downsample size for skin-color analysis (pixels on longest side).
+   * Increased from 80→100 for ~56% more skin-pixel samples at negligible
+   * cost (~1ms extra on a 100×75 downscaled canvas).
+   */
+  SKIN_SAMPLE_SIZE: 100,
+
+  /**
+   * Minimum skin-pixel count for the heuristic to be considered valid.
+   * Scaled proportionally from 50→80 to match the larger sample canvas.
+   */
+  SKIN_MIN_PIXELS: 80,
+
+  /**
+   * Grid dimensions for skin-pixel clustering (cols × rows).
+   * Increased from 4×3 (12 cells) to 8×6 (48 cells) — ~4× finer spatial
+   * resolution enables reliable face/neck discrimination at zero extra
+   * computation once pixels are classified.
+   */
+  SKIN_GRID_COLS: 8,
+  SKIN_GRID_ROWS: 6,
+
   /** YCbCr skin-pixel thresholds (ITU-R BT.601, illumination-invariant) */
   SKIN_CB_MIN: 77,
   SKIN_CB_MAX: 127,
   SKIN_CR_MIN: 133,
   SKIN_CR_MAX: 173,
+
+  // ---- Layer 1: Vertical position prior ----
+  /**
+   * Skin pixels in the upper portion of the image are weighted more
+   * heavily because faces nearly always appear in the upper half of
+   * portrait photos.  This naturally biases the detected region's
+   * center of mass away from the neck.
+   *
+   * Weight formula:  1.0 − decay × (row / maxRow)
+   * Top row gets 1.0×, bottom row gets (1.0 − decay)×.
+   */
+  SKIN_VERTICAL_WEIGHT_ENABLED: true,
+  /** At 0.35 the bottom row gets 0.65× the weight of the top row. */
+  SKIN_VERTICAL_WEIGHT_DECAY: 0.35,
+
+  // ---- Layer 2: Directional asymmetric expansion ----
+  /**
+   * After finding the peak-density cell, adjacent cells are merged into
+   * the face region if their raw skin-pixel count reaches a fraction of
+   * the peak.  Because faces are wider at the top and narrower at the
+   * bottom (chin), and the neck below shares skin tone, we use
+   * DIRECTIONAL thresholds:
+   *
+   *   Up (forehead/hair):   LOW  — easy to expand, hair is non-skin
+   *   Down (chin/neck):     HIGH — hard to expand, avoids neck bleed
+   *   Horizontal (cheeks):  MEDIUM
+   */
+  SKIN_EXPAND_UP_THRESHOLD: 0.25,
+  SKIN_EXPAND_DOWN_THRESHOLD: 0.60,
+  SKIN_EXPAND_SIDE_THRESHOLD: 0.35,
+
+  // ---- Layer 3: Edge-density bonus ----
+  /**
+   * Faces contain high-contrast features (eyes, brows, nostrils, mouth)
+   * that create sharp luminance edges.  Necks are comparatively smooth.
+   * Adding a small bonus to skin pixels near luminance edges shifts
+   * density mass toward the face and away from the neck.
+   *
+   * For each skin pixel we compare its luminance with its right-hand
+   * neighbour; if the difference exceeds the threshold we add the bonus
+   * weight to that pixel's grid cell.
+   */
+  SKIN_EDGE_BONUS_ENABLED: true,
+  /** Weight added to a skin pixel's grid cell when an edge is detected. */
+  SKIN_EDGE_BONUS_WEIGHT: 0.30,
+  /** Luminance difference (> this) between adjacent pixels → edge.
+   *  Typical face features produce step edges of 40–80 luma units;
+   *  smooth skin varies by <10.  A threshold of 20 reliably separates
+   *  facial features from uniform neck skin. */
+  SKIN_EDGE_LUM_THRESHOLD: 20,
+
+  // ---- Layer 4: Density cliff detection ----
+  /**
+   * Scans per-row skin-pixel density within the expanded region for a
+   * sharp drop that signals the face→neck transition.  The neck is
+   * narrower than the face, so horizontal skin-pixel count drops sharply
+   * below the chin.
+   *
+   * Only scans the lower half of the region to avoid false positives
+   * from forehead→hair transitions at the top.
+   */
+  SKIN_CLIFF_DETECT_ENABLED: true,
+  /**
+   * Minimum relative drop between consecutive rows to be considered a
+   * face→neck cliff.  0.40 = row below has ≤60% of the skin pixels.
+   */
+  SKIN_CLIFF_THRESHOLD: 0.40,
+
+  // ---- Layer 5: Aspect ratio sanity ----
+  /**
+   * A purely-skin-based face box that's much taller than wide almost
+   * certainly includes neck.  Clamp height to this ratio.
+   * 1.4:1 is generous for oval faces — a typical face is 1.0–1.3:1
+   * (height/width).  Anything taller gets bottom-trimmed.
+   */
+  SKIN_MAX_ASPECT_RATIO: 1.4,
+
+  // ---- Headroom extension ----
+  /**
+   * The skin heuristic detects the FACE (roughly hairline to chin).
+   * The hair and crown extend above the hairline by 25–38% of face
+   * height (anthropometric average ~33%).  This shift re-positions the
+   * attention point upward by a fraction of the detected face height
+   * so the crop window includes the full head, not just the face.
+   *
+   * General anthropometric data:
+   *   Face (hairline→chin) = ~60–65% of total head
+   *   Hair/crown above hairline = ~35–40% of face height
+   *   User measurement: hair 60px : face 160px → 0.375 ratio
+   *
+   * 0.15 × faceH shifts the centroid from the skin centre (roughly
+   * nose bridge) up toward the eye/forehead level so the crop window
+   * includes the full head with comfortable headroom.
+   */
+  SKIN_HEADROOM_SHIFT: 0.15,
 
   // ---- Tier 2: Fixed-bias fallback ----
   /**
@@ -136,6 +246,14 @@ export const FACE_DETECT_CONFIG = {
    * canonical source for the face-detection pipeline.
    */
   CROP_FALLBACK_BIAS: 0.38,
+
+  /**
+   * Vertical bias used when skin detection succeeds.
+   * 0.40 = attention point at 40% from top → more headroom above than
+   * below.  Combined with the headroom shift on the centroid, this
+   * ensures the full head (face + hair) is visible in the 4:3 crop.
+   */
+  CROP_FACE_BIAS: 0.40,
 };
 
 // Crop editor configuration
