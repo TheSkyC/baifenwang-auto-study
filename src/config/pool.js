@@ -115,17 +115,7 @@ export const IMAGE_POOL_CONFIG = {
 
 // Face detection (smart crop) configuration
 export const FACE_DETECT_CONFIG = {
-  // ---- Tier 1: Native FaceDetector API ----
-  /** Whether to attempt the browser-native FaceDetector API at all */
-  NATIVE_ENABLED: true,
-  /** Maximum time (ms) to wait for FaceDetector before falling back */
-  DETECT_TIMEOUT_MS: 2000,
-  /** Maximum number of faces to request from FaceDetector */
-  MAX_FACES: 5,
-  /** Prefer fast/low-accuracy mode for FaceDetector */
-  FAST_MODE: true,
-
-  // ---- Tier 2: Skin-color heuristic ----
+  // ---- Tier 1: Skin-color heuristic ----
   /** Downsample size for skin-color analysis (pixels on longest side) */
   SKIN_SAMPLE_SIZE: 80,
   /** Minimum skin-pixel count for heuristic to be considered valid */
@@ -139,19 +129,13 @@ export const FACE_DETECT_CONFIG = {
   SKIN_CR_MIN: 133,
   SKIN_CR_MAX: 173,
 
-  // ---- Tier 3: Fixed-bias fallback ----
+  // ---- Tier 2: Fixed-bias fallback ----
   /**
-   * Vertical bias when no faces are detected by either tier.
+   * Vertical bias when no skin regions are detected by the heuristic.
    * Same value as IMAGE_POOL_CONFIG.CROP_FACE_BIAS — kept here as the
    * canonical source for the face-detection pipeline.
    */
   CROP_FALLBACK_BIAS: 0.38,
-
-  // ---- Detection quality filters ----
-  /** Minimum face bounding-box area as fraction of total image area */
-  MIN_FACE_AREA_RATIO: 0.005,
-  /** Minimum face bounding-box dimension in pixels (reject spurious tiny detections) */
-  MIN_FACE_SIZE_PX: 10,
 };
 
 // Crop editor configuration

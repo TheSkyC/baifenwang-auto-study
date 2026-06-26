@@ -386,7 +386,7 @@ function processUploadedFile(file, existingHashes) {
         resolve(null);
       };
       img.onload = async () => {
-        // 5. Smart-crop to standard size (async: may use FaceDetector)
+        // 5. Smart-crop to standard size (async: face-detection-aware)
         const { dataUrl: cropped, width, height, cropRect } = await smartCropToStandard(img);
 
         // 6. Compress original for quota-friendly storage
@@ -1018,7 +1018,7 @@ export async function addImageFromDataURI(dataUrl, name) {
       resolve(null);
     };
     img.onload = async () => {
-      // Compress via smart-crop to standard dimensions (async: may use FaceDetector)
+      // Compress via smart-crop to standard dimensions (async: face-detection-aware)
       const { dataUrl: compressed, width, height, cropRect } = await smartCropToStandard(img);
 
       // Compress original for quota-friendly storage

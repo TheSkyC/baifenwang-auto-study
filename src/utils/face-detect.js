@@ -1,15 +1,12 @@
 /**
  * @file Face-detection-aware smart cropping.
  *
- * Three-tier pipeline for positioning the crop window:
+ * Two-tier pipeline for positioning the crop window:
  *
- *   Tier 1: Browser-native FaceDetector API (Chrome/Edge, secure context)
- *           → area-weighted centroid of all detected faces
- *
- *   Tier 2: Skin-color heuristic (YCbCr on downscaled canvas)
+ *   Tier 1: Skin-color heuristic (YCbCr on downscaled canvas)
  *           → density-cluster centroid of skin-tone pixels
  *
- *   Tier 3: Fixed vertical bias (CROP_FALLBACK_BIAS = 0.38)
+ *   Tier 2: Fixed vertical bias (CROP_FALLBACK_BIAS = 0.38)
  *           → identical to the previous hard-coded behaviour
  *
  * Each tier falls through silently on failure so the pipeline degrades
@@ -59,7 +56,7 @@ export async function smartCropToStandard(img) {
     cropBias = 0.60;
     debug(`Smart crop: ${faces.length} face(s) detected, attention at (${attentionX.toFixed(0)}, ${attentionY.toFixed(0)})`);
   } else {
-    // Tier 3 fallback: no faces — use heuristic upper bias
+    // Tier 2 fallback: no faces — use heuristic upper bias
     attentionX = srcW / 2;
     attentionY = srcH * FACE_DETECT_CONFIG.CROP_FALLBACK_BIAS;
     cropBias = FACE_DETECT_CONFIG.CROP_FALLBACK_BIAS;
@@ -76,7 +73,7 @@ export async function smartCropToStandard(img) {
  * for visualization in the face preview modal.
  *
  * @param {HTMLImageElement} img - decoded image (onload already fired)
- * @returns {Promise<{faces: Array<{x:number,y:number,width:number,height:number}>|null, tier: 'native'|'skin'|'fallback', attentionPoint: {x:number,y:number}|null, cropRect: {sx:number,sy:number,sw:number,sh:number}|null}>}
+ * @returns {Promise<{faces: Array<{x:number,y:number,width:number,height:number}>|null, tier: 'skin'|'fallback', attentionPoint: {x:number,y:number}|null, cropRect: {sx:number,sy:number,sw:number,sh:number}|null}>}
  */
 export async function detectFacesDebug(img) {
   const srcW = img.naturalWidth;
@@ -119,101 +116,22 @@ export async function detectFacesDebug(img) {
 // ---------------------------------------------------------------------------
 
 /**
- * Run the three-tier detection pipeline.
+ * Run the two-tier detection pipeline.
  *
  * @param {HTMLImageElement} img
- * @returns {Promise<{faces: Array<{x:number,y:number,width:number,height:number}>|null, tier: 'native'|'skin'|'fallback'}>}
+ * @returns {Promise<{faces: Array<{x:number,y:number,width:number,height:number}>|null, tier: 'skin'|'fallback'}>}
  */
 export async function detectFaces(img) {
-  // Tier 1: Native FaceDetector API
-  if (FACE_DETECT_CONFIG.NATIVE_ENABLED) {
-    const nativeFaces = await detectFacesNative(img);
-    if (nativeFaces && nativeFaces.length > 0) return { faces: nativeFaces, tier: 'native' };
-  }
-
-  // Tier 2: Skin-color heuristic
+  // Tier 1: Skin-color heuristic
   const skinFaces = detectFacesSkinHeuristic(img);
   if (skinFaces && skinFaces.length > 0) return { faces: skinFaces, tier: 'skin' };
 
-  // Tier 3: nothing found — caller uses fixed bias
+  // Tier 2: nothing found — caller uses fixed bias
   return { faces: null, tier: 'fallback' };
 }
 
 // ---------------------------------------------------------------------------
-// Tier 1: Browser-native FaceDetector
-// ---------------------------------------------------------------------------
-
-/**
- * Detect faces using the Shape Detection API (FaceDetector).
- * Available in Chrome/Edge when window.isSecureContext is true.
- *
- * @param {HTMLImageElement} img
- * @returns {Promise<Array<{x:number,y:number,width:number,height:number}>|null>}
- */
-async function detectFacesNative(img) {
-  // Secure-context gate — FaceDetector throws on HTTP pages
-  if (typeof window !== 'undefined' && !window.isSecureContext) {
-    debug('FaceDetector: skipping (not a secure context)');
-    return null;
-  }
-
-  // API availability gate
-  if (typeof FaceDetector === 'undefined') {
-    debug('FaceDetector: API not available in this browser');
-    return null;
-  }
-
-  try {
-    const detector = new FaceDetector({
-      maxDetectedFaces: FACE_DETECT_CONFIG.MAX_FACES,
-      fastMode: FACE_DETECT_CONFIG.FAST_MODE,
-    });
-
-    // Race against timeout to avoid hanging on problematic images
-    const faces = await Promise.race([
-      detector.detect(img),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('FaceDetector timeout')),
-          FACE_DETECT_CONFIG.DETECT_TIMEOUT_MS),
-      ),
-    ]);
-
-    if (!Array.isArray(faces) || faces.length === 0) {
-      debug('FaceDetector: no faces found');
-      return null;
-    }
-
-    // Filter out spurious tiny detections
-    const srcArea = img.naturalWidth * img.naturalHeight;
-    const minArea = srcArea * FACE_DETECT_CONFIG.MIN_FACE_AREA_RATIO;
-    const minSize = FACE_DETECT_CONFIG.MIN_FACE_SIZE_PX;
-
-    const filtered = faces
-      .map((f) => ({
-        x: f.boundingBox.x,
-        y: f.boundingBox.y,
-        width: f.boundingBox.width,
-        height: f.boundingBox.height,
-      }))
-      .filter((f) =>
-        f.width >= minSize && f.height >= minSize && f.width * f.height >= minArea,
-      );
-
-    if (filtered.length === 0) {
-      debug('FaceDetector: all detections below minimum size, filtered out');
-      return null;
-    }
-
-    debug(`FaceDetector: found ${filtered.length} face(s) (from ${faces.length} raw detections)`);
-    return filtered;
-  } catch (e) {
-    debug(`FaceDetector: failed — ${e.message || e}`);
-    return null;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Tier 2: Skin-color heuristic (YCbCr on downscaled canvas)
+// Tier 1: Skin-color heuristic (YCbCr on downscaled canvas)
 // ---------------------------------------------------------------------------
 
 /**

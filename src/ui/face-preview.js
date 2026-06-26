@@ -61,13 +61,11 @@ let _rendering = false;
 // ---------------------------------------------------------------------------
 
 const TIER_LABELS = {
-  native: '🎯 原生 FaceDetector',
   skin: '🎨 肤色启发式',
   fallback: '📐 固定偏置',
 };
 
 const TIER_CSS = {
-  native: 'fp-tier-native',
   skin: 'fp-tier-skin',
   fallback: 'fp-tier-fallback',
 };
