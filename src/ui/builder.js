@@ -574,7 +574,7 @@ function createUpdateCard(result, onRecheck, onIgnore) {
     </div>
     <div class="bfw-update-card-meta">
       <span>v${SCRIPT_VERSION}</span>
-      <span class="arrow">→</span>
+      <span class="arrow">${icons.arrowRight}</span>
       <span class="version-badge"></span>
       <button class="bfw-update-recheck-btn" title="重新检测">${icons.refresh}</button>
     </div>

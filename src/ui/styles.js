@@ -2035,7 +2035,6 @@ export const STYLES = `
 
   .bfw-update-card-meta .arrow {
     color: #6c7086;
-    font-size: 10px;
   }
 
   /* Changelog list inside the card */
