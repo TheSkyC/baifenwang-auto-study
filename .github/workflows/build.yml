@@ -35,7 +35,11 @@ jobs:
         id: commit
         run: |
           git add dist/
-          git commit -m "chore(build): ci build [skip ci]"
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+          else
+            git commit -m "chore(build): ci build [skip ci]"
+          fi
         continue-on-error: true
 
       - name: Git push
