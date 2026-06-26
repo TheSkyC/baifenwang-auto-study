@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -28,8 +30,7 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          TAG="$GITHUB_REF_NAME"
-          # Validate semver tag format (vX.Y.Z with optional -suffix)
+          TAG="${GITHUB_REF_NAME}"
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\-.+)?$ ]]; then
             echo "::error::Release tag must match vX.Y.Z (e.g. v1.0.0, v1.0.0-beta)"
             exit 1
@@ -93,14 +94,7 @@ jobs:
             --file dist/baifenwang-auto-study.user.js
             --content-type "application/javascript; charset=utf-8"
 
-      # ── Append new release to the update-api catalog ──────────────────────
-      - name: Checkout update-api repo
-        uses: actions/checkout@v4
-        with:
-          repository: TheSkyC/baifenwang-update-api
-          token: ${{ secrets.UPDATE_API_TOKEN }}
-          path: update-api
-
+      # ── Inject new release into Worker catalog ────────────────────────────
       - name: Compute SHA-256 and file size
         id: artifact
         run: |
@@ -109,41 +103,25 @@ jobs:
           echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
           echo "size=$size"     >> "$GITHUB_OUTPUT"
 
-      - name: Inject new release into catalog
+      - name: Inject new release into Worker catalog
         env:
           VERSION:        ${{ steps.version.outputs.version }}
           TAG:            ${{ github.ref_name }}
           SHA256:         ${{ steps.artifact.outputs.sha256 }}
           SIZE:           ${{ steps.artifact.outputs.size }}
           REPO:           ${{ github.repository }}
-          PUBLISHED:      ${{ github.event.head_commit.timestamp }}
           CDN_BASE:       ${{ secrets.CDN_BASE }}
           CHANGELOG_PATH: ${{ github.workspace }}/CHANGELOG.md
-        run: node update-api/scripts/inject-release.mjs
+        run: node scripts/inject-release.mjs
 
-      - name: Push catalog update
-        run: |
-          cd update-api
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git push origin HEAD:main
-
-      - name: Deploy update-api to Cloudflare Workers
-        continue-on-error: true
-        uses: cloudflare/wrangler-action@v3.14.1
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: update-api
-          command: deploy
-
-      # ── Commit dist back to master (keeps updateURL on GitHub raw in sync) ──
-      - name: Commit dist to master
+      # ── Commit catalog + dist back to master ──────────────────────────────
+      - name: Commit catalog update and dist to master
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin master
           git checkout master
-          git add dist/baifenwang-auto-study.user.js
-          git commit -m "chore(dist): update dist for ${{ github.ref_name }}" || echo "nothing to commit"
+          git add worker/src/index.js dist/baifenwang-auto-study.user.js
+          git commit -m "chore(release): update worker catalog and dist for ${{ github.ref_name }}" || echo "nothing to commit"
           git push origin master
+
+      # Worker is deployed automatically by Cloudflare's GitHub integration

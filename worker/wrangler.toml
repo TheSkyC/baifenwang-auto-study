@@ -1,4 +1,4 @@
-name = "bfw-update-api"
+name = "baifenwang-auto-study"
 main = "src/index.js"
 compatibility_date = "2025-06-25"
 
