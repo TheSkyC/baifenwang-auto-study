@@ -541,6 +541,19 @@ const TYPE_LABELS = {
 };
 
 /**
+ * Map short form types from the Worker API to canonical internal types.
+ * Worker uses conventional-commit abbreviations (feat, change, perf);
+ * the front-end expects full names for CSS class and label lookup.
+ * Types not listed here pass through unchanged (e.g. "fix", "security").
+ * @type {Record<string, string>}
+ */
+const TYPE_ALIASES = {
+  feat:    'feature',
+  change:  'improvement',
+  perf:    'performance',
+};
+
+/**
  * Render the changelog card DOM.
  * @param {import('../utils/update-checker.js').UpdateResult} result
  * @param {() => void} onRecheck — called when the user clicks "重新检测"
@@ -604,9 +617,10 @@ function createUpdateCard(result, onRecheck, onIgnore) {
       row.className = 'bfw-changelog-entry';
 
       const typeSpan = document.createElement('span');
-      const safeType = /^[a-z]+$/.test(e.type) ? e.type : 'internal';
-      typeSpan.className = `bfw-changelog-type bfw-type-${safeType}`;
-      typeSpan.textContent = TYPE_LABELS[e.type] ?? e.type;
+      const rawType = /^[a-z]+$/.test(e.type) ? e.type : 'internal';
+      const canonicalType = TYPE_ALIASES[rawType] || rawType;
+      typeSpan.className = `bfw-changelog-type bfw-type-${canonicalType}`;
+      typeSpan.textContent = TYPE_LABELS[canonicalType] ?? e.type;
 
       const textSpan = document.createElement('span');
       textSpan.className = 'bfw-changelog-text';
