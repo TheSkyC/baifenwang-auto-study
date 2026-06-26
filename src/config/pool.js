@@ -144,6 +144,50 @@ export const FACE_DETECT_CONFIG = {
   SKIN_CR_MIN: 133,
   SKIN_CR_MAX: 173,
 
+  // ---- Component analysis (P0 backbone) ----
+  /**
+   * Minimum absolute skin pixels for a connected component to be considered
+   * as a face candidate on the downsampled canvas.
+   */
+  SKIN_COMPONENT_MIN_PIXELS: 60,
+  /**
+   * Minimum component area ratio relative to the downsampled sample canvas.
+   * Rejects tiny blobs even when the absolute pixel threshold is permissive.
+   */
+  SKIN_COMPONENT_MIN_AREA_RATIO: 0.01,
+  /**
+   * Broad aspect-ratio guard for candidate components before final trimming.
+   * Kept generous so slightly tilted or off-angle faces still survive.
+   */
+  SKIN_COMPONENT_MIN_ASPECT_RATIO: 0.55,
+  SKIN_COMPONENT_MAX_CANDIDATE_ASPECT_RATIO: 2.2,
+  /** Typical face height/width ratio used by the component scorer. */
+  SKIN_COMPONENT_IDEAL_ASPECT_RATIO: 1.18,
+  /**
+   * Target area ratio for the area score.  Larger components saturate the
+   * score instead of dominating purely by size.
+   */
+  SKIN_COMPONENT_TARGET_AREA_RATIO: 0.10,
+  /**
+   * Edge-density guards for rejecting smooth, skin-coloured background
+   * regions such as cabinets or walls.
+   */
+  SKIN_COMPONENT_MIN_EDGE_RATIO: 0.012,
+  SKIN_COMPONENT_HARD_MIN_EDGE_RATIO: 0.006,
+  /**
+   * Best-candidate confidence gates.  When the top component is weak or the
+   * top two are too close, the heuristic falls back to the fixed crop bias.
+   */
+  SKIN_COMPONENT_SCORE_THRESHOLD: 2.35,
+  SKIN_COMPONENT_MIN_SCORE_MARGIN: 0.18,
+  /** Component scorer weights. */
+  SKIN_SCORE_WEIGHT_AREA: 0.90,
+  SKIN_SCORE_WEIGHT_VERTICAL: 0.85,
+  SKIN_SCORE_WEIGHT_EDGE: 1.35,
+  SKIN_SCORE_WEIGHT_ASPECT: 0.85,
+  SKIN_SCORE_WEIGHT_SHARE: 0.45,
+  SKIN_SCORE_WEIGHT_TAPER: 0.35,
+
   // ---- Layer 1: Vertical position prior ----
   /**
    * Skin pixels in the upper portion of the image are weighted more

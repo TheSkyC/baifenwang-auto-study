@@ -153,40 +153,82 @@
      */
     SKIN_MIN_PIXELS: 80,
 
-    /**
-     * Grid dimensions for skin-pixel clustering (cols × rows).
-     * Increased from 4×3 (12 cells) to 8×6 (48 cells) — ~4× finer spatial
-     * resolution enables reliable face/neck discrimination at zero extra
-     * computation once pixels are classified.
-     */
-    SKIN_GRID_COLS: 8,
-    SKIN_GRID_ROWS: 6,
-
     /** YCbCr skin-pixel thresholds (ITU-R BT.601, illumination-invariant) */
     SKIN_CB_MIN: 77,
     SKIN_CB_MAX: 127,
     SKIN_CR_MIN: 133,
     SKIN_CR_MAX: 173,
 
+    // ---- Component analysis (P0 backbone) ----
+    /**
+     * Minimum absolute skin pixels for a connected component to be considered
+     * as a face candidate on the downsampled canvas.
+     */
+    SKIN_COMPONENT_MIN_PIXELS: 60,
+    /**
+     * Minimum component area ratio relative to the downsampled sample canvas.
+     * Rejects tiny blobs even when the absolute pixel threshold is permissive.
+     */
+    SKIN_COMPONENT_MIN_AREA_RATIO: 0.01,
+    /**
+     * Broad aspect-ratio guard for candidate components before final trimming.
+     * Kept generous so slightly tilted or off-angle faces still survive.
+     */
+    SKIN_COMPONENT_MIN_ASPECT_RATIO: 0.55,
+    SKIN_COMPONENT_MAX_CANDIDATE_ASPECT_RATIO: 2.2,
+    /** Typical face height/width ratio used by the component scorer. */
+    SKIN_COMPONENT_IDEAL_ASPECT_RATIO: 1.18,
+    /**
+     * Target area ratio for the area score.  Larger components saturate the
+     * score instead of dominating purely by size.
+     */
+    SKIN_COMPONENT_TARGET_AREA_RATIO: 0.10,
+    /**
+     * Edge-density guards for rejecting smooth, skin-coloured background
+     * regions such as cabinets or walls.
+     */
+    SKIN_COMPONENT_MIN_EDGE_RATIO: 0.012,
+    SKIN_COMPONENT_HARD_MIN_EDGE_RATIO: 0.006,
+    /**
+     * Best-candidate confidence gates.  When the top component is weak or the
+     * top two are too close, the heuristic falls back to the fixed crop bias.
+     */
+    SKIN_COMPONENT_SCORE_THRESHOLD: 2.35,
+    SKIN_COMPONENT_MIN_SCORE_MARGIN: 0.18,
+    /** Component scorer weights. */
+    SKIN_SCORE_WEIGHT_AREA: 0.90,
+    SKIN_SCORE_WEIGHT_VERTICAL: 0.85,
+    SKIN_SCORE_WEIGHT_EDGE: 1.35,
+    SKIN_SCORE_WEIGHT_ASPECT: 0.85,
+    SKIN_SCORE_WEIGHT_SHARE: 0.45,
+    SKIN_SCORE_WEIGHT_TAPER: 0.35,
+
+    // ---- Layer 1: Vertical position prior ----
+    /**
+     * Skin pixels in the upper portion of the image are weighted more
+     * heavily because faces nearly always appear in the upper half of
+     * portrait photos.  This naturally biases the detected region's
+     * center of mass away from the neck.
+     *
+     * Weight formula:  1.0 − decay × (row / maxRow)
+     * Top row gets 1.0×, bottom row gets (1.0 − decay)×.
+     */
+    SKIN_VERTICAL_WEIGHT_ENABLED: true,
     /** At 0.35 the bottom row gets 0.65× the weight of the top row. */
     SKIN_VERTICAL_WEIGHT_DECAY: 0.35,
 
-    // ---- Layer 2: Directional asymmetric expansion ----
+    // ---- Layer 3: Edge-density bonus ----
     /**
-     * After finding the peak-density cell, adjacent cells are merged into
-     * the face region if their raw skin-pixel count reaches a fraction of
-     * the peak.  Because faces are wider at the top and narrower at the
-     * bottom (chin), and the neck below shares skin tone, we use
-     * DIRECTIONAL thresholds:
+     * Faces contain high-contrast features (eyes, brows, nostrils, mouth)
+     * that create sharp luminance edges.  Necks are comparatively smooth.
+     * Adding a small bonus to skin pixels near luminance edges shifts
+     * density mass toward the face and away from the neck.
      *
-     *   Up (forehead/hair):   LOW  — easy to expand, hair is non-skin
-     *   Down (chin/neck):     HIGH — hard to expand, avoids neck bleed
-     *   Horizontal (cheeks):  MEDIUM
+     * For each skin pixel we compare its luminance with its right-hand
+     * neighbour; if the difference exceeds the threshold we add the bonus
+     * weight to that pixel's grid cell.
      */
-    SKIN_EXPAND_UP_THRESHOLD: 0.25,
-    SKIN_EXPAND_DOWN_THRESHOLD: 0.60,
-    SKIN_EXPAND_SIDE_THRESHOLD: 0.35,
-
+    SKIN_EDGE_BONUS_ENABLED: true,
     /** Weight added to a skin pixel's grid cell when an edge is detected. */
     SKIN_EDGE_BONUS_WEIGHT: 0.30,
     /** Luminance difference (> this) between adjacent pixels → edge.
@@ -1581,42 +1623,16 @@
   // ---------------------------------------------------------------------------
 
   /**
-   * Estimate face position by detecting clusters of skin-tone pixels.
+   * Estimate face position by detecting connected skin-tone regions.
    *
-   * Six-layer enhancement pipeline (all layers operate on the same
-   * downscaled canvas, keeping total cost <8ms):
-   *
-   *   Layer 1 — Vertical position prior:
-   *     Skin pixels in the upper portion of the image are weighted more
-   *     heavily because faces nearly always appear in the upper half of
-   *     portrait photos.  This biases the density centre of mass upward.
-   *
-   *   Layer 2 — Edge-density bonus:
-   *     Skin pixels near sharp luminance edges (eyes, brows, nostrils,
-   *     mouth) receive a bonus weight.  Necks are smooth — this shifts
-   *     mass away from them.
-   *
-   *   Layer 3 — Increased grid resolution (8×6 vs. old 4×3):
-   *     ~4× finer spatial discrimination at zero extra computation once
-   *     pixels are classified.  Enables reliable face/neck separation
-   *     that was impossible with the old coarse grid.
-   *
-   *   Layer 4 — Directional asymmetric expansion:
-   *     Different inclusion thresholds per direction relative to the
-   *     peak-density cell — low threshold upward (easy to include
-   *     forehead), high threshold downward (hard to include neck).
-   *
-   *   Layer 5 — Density cliff detection:
-   *     Scans per-row skin-pixel density for a sharp drop in the lower
-   *     half of the expanded region that signals the chin→neck transition.
-   *
-   *   Layer 6 — Aspect ratio sanity:
-   *     If the final region is >1.4× taller than wide it almost certainly
-   *     includes neck — bottom rows are trimmed to restore a face-like ratio.
-   *
-   * When all layers pass, the function returns a single face box with
-   * optional density-weighted centroid fields (cx, cy) that give a more
-   * precise attention point than the geometric box centre.
+   * P0 pipeline:
+   *   1. Classify skin pixels on a downscaled canvas
+   *   2. Build connected components on the binary skin mask
+   *   3. Score each component by size, vertical prior, edge density,
+   *      aspect ratio, dominance, and top/bottom taper
+   *   4. Fall back when the best component is too weak or ambiguous
+   *   5. Reuse the existing density-cliff and aspect-ratio safeguards to
+   *      trim neck bleed from the selected component
    *
    * @param {HTMLImageElement} img
    * @returns {Array<{x:number,y:number,width:number,height:number,cx?:number,cy?:number}>|null}
@@ -1626,7 +1642,6 @@
     const srcH = img.naturalHeight;
     const cfg = FACE_DETECT_CONFIG;
 
-    // ── Down-scale to a small sample canvas ──────────────────────────────
     const scale = Math.min(cfg.SKIN_SAMPLE_SIZE / srcW, cfg.SKIN_SAMPLE_SIZE / srcH);
     const cw = Math.max(1, Math.round(srcW * scale));
     const ch = Math.max(1, Math.round(srcH * scale));
@@ -1648,189 +1663,255 @@
     }
 
     const { data } = imageData;
-    const gridCols = cfg.SKIN_GRID_COLS;
-    const gridRows = cfg.SKIN_GRID_ROWS;
-    const cellW = cw / gridCols;
-    const cellH = ch / gridRows;
-
-    // Weighted grid accumulates contributions from layers 1–3.
-    // Used to find the peak cell and determine the density centroid.
-    const grid = Array.from({ length: gridRows }, () => new Array(gridCols).fill(0));
-
-    // Raw (unweighted) grid preserves the true skin-pixel count per cell.
-    // Used for expansion decisions (layer 4) and cliff detection (layer 5)
-    // where we need un-skewed counts.
-    const rawGrid = Array.from({ length: gridRows }, () => new Array(gridCols).fill(0));
-
+    const pixelCount = cw * ch;
+    const skinMask = new Uint8Array(pixelCount);
+    const edgeMask = new Uint8Array(pixelCount);
     let totalSkin = 0;
 
-    // ── Single-pass pixel classification (layers 1–3) ────────────────────
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
+    for (let py = 0; py < ch; py++) {
+      for (let px = 0; px < cw; px++) {
+        const pixelIndex = py * cw + px;
+        const i = pixelIndex * 4;
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
 
-      // RGB → YCbCr (ITU-R BT.601 simplified)
-      const cb = 128 - 0.169 * r - 0.331 * g + 0.500 * b;
-      const cr = 128 + 0.500 * r - 0.419 * g - 0.081 * b;
+        const cb = 128 - 0.169 * r - 0.331 * g + 0.500 * b;
+        const cr = 128 + 0.500 * r - 0.419 * g - 0.081 * b;
 
-      if (cb >= cfg.SKIN_CB_MIN && cb <= cfg.SKIN_CB_MAX
-          && cr >= cfg.SKIN_CR_MIN && cr <= cfg.SKIN_CR_MAX) {
-        const px = (i / 4) % cw;
-        const py = Math.floor((i / 4) / cw);
-        const col = Math.min(Math.floor(px / cellW), gridCols - 1);
-        const row = Math.min(Math.floor(py / cellH), gridRows - 1);
+        if (cb >= cfg.SKIN_CB_MIN && cb <= cfg.SKIN_CB_MAX
+            && cr >= cfg.SKIN_CR_MIN && cr <= cfg.SKIN_CR_MAX) {
+          skinMask[pixelIndex] = 1;
+          totalSkin++;
 
-        // Raw count (always incremented)
-        rawGrid[row][col]++;
-
-        // Layer 1: Vertical position prior
-        // Top rows get 1.0× weight; bottom rows get (1.0 − decay)×
-        let cellWeight = 1.0;
-        {
-          const vertFactor = 1.0 - cfg.SKIN_VERTICAL_WEIGHT_DECAY
-            * (row / Math.max(gridRows - 1, 1));
-          cellWeight *= Math.max(0.1, vertFactor);
-        }
-
-        // Layer 2: Edge-density bonus
-        // Compare luminance with the pixel to the right — facial features
-        // (eyes, brows, mouth) produce strong horizontal luminance edges.
-        if (px < cw - 1) {
-          const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-          const r2 = data[i + 4];
-          const g2 = data[i + 5];
-          const b2 = data[i + 6];
-          const lum2 = 0.299 * r2 + 0.587 * g2 + 0.114 * b2;
-          if (Math.abs(lum - lum2) > cfg.SKIN_EDGE_LUM_THRESHOLD) {
-            cellWeight += cfg.SKIN_EDGE_BONUS_WEIGHT;
+          if (px < cw - 1) {
+            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            const i2 = i + 4;
+            const lum2 = 0.299 * data[i2] + 0.587 * data[i2 + 1] + 0.114 * data[i2 + 2];
+            if (Math.abs(lum - lum2) > cfg.SKIN_EDGE_LUM_THRESHOLD) {
+              edgeMask[pixelIndex] = 1;
+            }
           }
         }
-
-        grid[row][col] += cellWeight;
-        totalSkin++;
       }
     }
 
-    // ── Minimum skin-pixel guard ──────────────────────────────────────────
     if (totalSkin < cfg.SKIN_MIN_PIXELS) {
       debug(`Skin heuristic: only ${totalSkin} skin pixels (need ${cfg.SKIN_MIN_PIXELS})`);
       return null;
     }
 
-    // ── Find peak-density cell (weighted grid) ────────────────────────────
-    let maxDensity = 0;
-    let bestRow = 0;
-    let bestCol = 0;
-    for (let r = 0; r < gridRows; r++) {
-      for (let c = 0; c < gridCols; c++) {
-        if (grid[r][c] > maxDensity) {
-          maxDensity = grid[r][c];
-          bestRow = r;
-          bestCol = c;
-        }
-      }
+    const minComponentPixels = Math.max(
+      cfg.SKIN_COMPONENT_MIN_PIXELS,
+      Math.round(pixelCount * cfg.SKIN_COMPONENT_MIN_AREA_RATIO),
+    );
+    const components = collectSkinComponents(skinMask, edgeMask, cw, ch, cfg, minComponentPixels);
+    if (components.length === 0) {
+      debug(`Skin heuristic: ${totalSkin} skin px but no component survived min area ${minComponentPixels}`);
+      return null;
     }
 
-    // ── Layer 4: Directional asymmetric expansion ────────────────────────
-    // The peak raw value serves as the reference for all thresholds.
-    const peakRaw = rawGrid[bestRow][bestCol];
-    if (peakRaw === 0) return null; // Should never happen — guard
+    const candidates = components
+      .map((component) => scoreSkinComponent(component, totalSkin, cw, ch, cfg))
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score);
 
-    let minCol = bestCol;
-    let maxCol = bestCol;
-    let minRow = bestRow;
-    let maxRow = bestRow;
-
-    for (let r = 0; r < gridRows; r++) {
-      for (let c = 0; c < gridCols; c++) {
-        let threshold;
-        if (r < bestRow) {
-          threshold = cfg.SKIN_EXPAND_UP_THRESHOLD;       // 0.30 — easy up
-        } else if (r > bestRow) {
-          threshold = cfg.SKIN_EXPAND_DOWN_THRESHOLD;     // 0.55 — hard down
-        } else {
-          threshold = cfg.SKIN_EXPAND_SIDE_THRESHOLD;     // 0.40 — medium
-        }
-
-        if (rawGrid[r][c] >= peakRaw * threshold) {
-          if (c < minCol) minCol = c;
-          if (c > maxCol) maxCol = c;
-          if (r < minRow) minRow = r;
-          if (r > maxRow) maxRow = r;
-        }
-      }
+    if (candidates.length === 0) {
+      debug(`Skin heuristic: ${components.length} component(s) found, none passed candidate scoring`);
+      return null;
     }
 
-    // ── Layer 5: Density cliff detection ─────────────────────────────────
-    // Scan per-row skin-pixel density looking for a sharp drop that signals
-    // the face→neck transition.  Only scan the lower half of the region to
-    // avoid mistaking forehead→hair transitions for cliffs.
-    {
-      const rowDensity = [];
-      for (let r = minRow; r <= maxRow; r++) {
-        let rowSum = 0;
-        for (let c = minCol; c <= maxCol; c++) {
-          rowSum += rawGrid[r][c];
-        }
-        rowDensity.push({ row: r, density: rowSum });
-      }
+    const best = candidates[0];
+    const second = candidates[1] || null;
+    const margin = second ? best.score - second.score : best.score;
 
-      const startIdx = Math.floor(rowDensity.length / 2);
-      let maxDrop = 0;
-      let dropRow = -1;
-      for (let i = startIdx; i < rowDensity.length - 1; i++) {
-        if (rowDensity[i].density > 0) {
-          const drop = (rowDensity[i].density - rowDensity[i + 1].density)
-            / rowDensity[i].density;
-          if (drop > maxDrop && drop >= cfg.SKIN_CLIFF_THRESHOLD) {
-            maxDrop = drop;
-            dropRow = rowDensity[i].row;
+    debug(
+      `Skin heuristic: ${totalSkin} skin px, ${components.length} component(s), `
+      + `best score=${best.score.toFixed(2)} `
+      + `(area=${best.component.area}, edge=${best.edgeRatio.toFixed(3)}, aspect=${best.aspect.toFixed(2)}, cy=${best.centerY.toFixed(1)})`
+      + (second ? `, second=${second.score.toFixed(2)}, margin=${margin.toFixed(2)}` : ''),
+    );
+
+    if (best.score < cfg.SKIN_COMPONENT_SCORE_THRESHOLD
+        || (second && margin < cfg.SKIN_COMPONENT_MIN_SCORE_MARGIN)) {
+      debug(
+        `Skin heuristic: low-confidence candidate `
+        + `(best=${best.score.toFixed(2)}, threshold=${cfg.SKIN_COMPONENT_SCORE_THRESHOLD.toFixed(2)}, margin=${margin.toFixed(2)})`,
+      );
+      return null;
+    }
+
+    const result = finalizeComponentFace(best.component, srcW, srcH, cw, ch, edgeMask, cfg);
+    if (!result) {
+      debug('Skin heuristic: selected component failed finalization');
+      return null;
+    }
+
+    return [result];
+  }
+
+  function collectSkinComponents(skinMask, edgeMask, cw, ch, cfg, minComponentPixels) {
+    const visited = new Uint8Array(cw * ch);
+    const components = [];
+
+    for (let start = 0; start < skinMask.length; start++) {
+      if (!skinMask[start] || visited[start]) continue;
+
+      const stack = [start];
+      visited[start] = 1;
+
+      const component = {
+        area: 0,
+        edgeCount: 0,
+        minX: cw,
+        maxX: -1,
+        minY: ch,
+        maxY: -1,
+        weightedX: 0,
+        weightedY: 0,
+        weightSum: 0,
+        pixels: [],
+      };
+
+      while (stack.length > 0) {
+        const idx = stack.pop();
+        const x = idx % cw;
+        const y = Math.floor(idx / cw);
+
+        component.area++;
+        component.pixels.push(idx);
+        if (edgeMask[idx]) component.edgeCount++;
+        if (x < component.minX) component.minX = x;
+        if (x > component.maxX) component.maxX = x;
+        if (y < component.minY) component.minY = y;
+        if (y > component.maxY) component.maxY = y;
+
+        const weight = getSkinPixelWeight(y, ch, edgeMask[idx], cfg);
+        component.weightedX += (x + 0.5) * weight;
+        component.weightedY += (y + 0.5) * weight;
+        component.weightSum += weight;
+
+        for (let ny = Math.max(0, y - 1); ny <= Math.min(ch - 1, y + 1); ny++) {
+          for (let nx = Math.max(0, x - 1); nx <= Math.min(cw - 1, x + 1); nx++) {
+            if (nx === x && ny === y) continue;
+            const nidx = ny * cw + nx;
+            if (!skinMask[nidx] || visited[nidx]) continue;
+            visited[nidx] = 1;
+            stack.push(nidx);
           }
         }
       }
 
-      if (dropRow >= 0) {
-        maxRow = dropRow;
-        debug(`Skin heuristic: density cliff at row ${dropRow} (${(maxDrop * 100).toFixed(0)}% drop), face bottom clipped`);
+      if (component.area >= minComponentPixels) {
+        components.push(component);
       }
     }
 
-    // ── Layer 6: Aspect ratio sanity ─────────────────────────────────────
-    const regionCols = maxCol - minCol + 1;
-    const regionRows = maxRow - minRow + 1;
-    if (regionRows / regionCols > cfg.SKIN_MAX_ASPECT_RATIO) {
-      const maxRows = Math.max(1, Math.ceil(regionCols * cfg.SKIN_MAX_ASPECT_RATIO));
-      const trimmed = regionRows - maxRows;
+    return components;
+  }
+
+  function scoreSkinComponent(component, totalSkin, cw, ch, cfg) {
+    const width = component.maxX - component.minX + 1;
+    const height = component.maxY - component.minY + 1;
+    if (width <= 0 || height <= 0) return null;
+
+    const aspect = height / width;
+    if (aspect < cfg.SKIN_COMPONENT_MIN_ASPECT_RATIO
+        || aspect > cfg.SKIN_COMPONENT_MAX_CANDIDATE_ASPECT_RATIO) {
+      return null;
+    }
+
+    const areaRatio = component.area / (cw * ch);
+    const edgeRatio = component.edgeCount / Math.max(component.area, 1);
+    if (component.area >= Math.round(cw * ch * 0.03)
+        && edgeRatio < cfg.SKIN_COMPONENT_HARD_MIN_EDGE_RATIO) {
+      return null;
+    }
+
+    const centerY = component.weightSum > 0
+      ? component.weightedY / component.weightSum
+      : (component.minY + component.maxY + 1) / 2;
+    if (centerY > ch * 0.84) return null;
+
+    const areaScore = clamp01(
+      (areaRatio - cfg.SKIN_COMPONENT_MIN_AREA_RATIO)
+      / Math.max(cfg.SKIN_COMPONENT_TARGET_AREA_RATIO - cfg.SKIN_COMPONENT_MIN_AREA_RATIO, 0.0001),
+    );
+    const verticalScore = clamp01(1 - centerY / Math.max(ch * 0.85, 1));
+    const edgeScore = clamp01(
+      (edgeRatio - cfg.SKIN_COMPONENT_MIN_EDGE_RATIO)
+      / Math.max(0.06 - cfg.SKIN_COMPONENT_MIN_EDGE_RATIO, 0.0001),
+    );
+    const aspectScore = scoreAspect(aspect, cfg.SKIN_COMPONENT_IDEAL_ASPECT_RATIO);
+    const shareScore = clamp01((component.area / Math.max(totalSkin, 1)) / 0.55);
+    const taperScore = measureComponentTaper(component, cw);
+
+    const score = areaScore * cfg.SKIN_SCORE_WEIGHT_AREA
+      + verticalScore * cfg.SKIN_SCORE_WEIGHT_VERTICAL
+      + edgeScore * cfg.SKIN_SCORE_WEIGHT_EDGE
+      + aspectScore * cfg.SKIN_SCORE_WEIGHT_ASPECT
+      + shareScore * cfg.SKIN_SCORE_WEIGHT_SHARE
+      + taperScore * cfg.SKIN_SCORE_WEIGHT_TAPER;
+
+    return {
+      component,
+      score,
+      aspect,
+      edgeRatio,
+      centerY,
+    };
+  }
+
+  function finalizeComponentFace(component, srcW, srcH, cw, ch, edgeMask, cfg) {
+    const rowData = buildComponentRowData(component, cw);
+    let minY = component.minY;
+    let maxY = component.maxY;
+
+    {
+      const clippedMaxY = findDensityCliffCutoff(rowData, minY, maxY, cfg);
+      if (clippedMaxY < maxY) {
+        debug(`Skin heuristic: density cliff at row ${clippedMaxY}, face bottom clipped`);
+        maxY = clippedMaxY;
+      }
+    }
+
+    let bounds = boundsForRows(rowData, minY, maxY);
+    if (!bounds) return null;
+
+    let regionW = bounds.maxX - bounds.minX + 1;
+    let regionH = bounds.maxY - bounds.minY + 1;
+    if (regionH / regionW > cfg.SKIN_MAX_ASPECT_RATIO) {
+      const maxRows = Math.max(1, Math.ceil(regionW * cfg.SKIN_MAX_ASPECT_RATIO));
+      const trimmed = regionH - maxRows;
       if (trimmed > 0) {
-        maxRow = minRow + maxRows - 1;
-        debug(`Skin heuristic: region too tall (${(regionRows / regionCols).toFixed(1)}:1), trimmed ${trimmed} row(s) from bottom`);
+        maxY = bounds.minY + maxRows - 1;
+        debug(`Skin heuristic: region too tall (${(regionH / regionW).toFixed(1)}:1), trimmed ${trimmed} row(s) from bottom`);
+        bounds = boundsForRows(rowData, bounds.minY, maxY);
+        if (!bounds) return null;
+        regionW = bounds.maxX - bounds.minX + 1;
+        regionH = bounds.maxY - bounds.minY + 1;
       }
     }
 
-    // ── Density-weighted centroid ────────────────────────────────────────
-    // Compute the centre of mass within the final region for a more precise
-    // attention point than the geometric box centre.  Uses the weighted grid
-    // so the vertical prior and edge bonus contribute to the centroid.
     let weightedX = 0;
     let weightedY = 0;
     let weightSum = 0;
-    for (let r = minRow; r <= maxRow; r++) {
-      for (let c = minCol; c <= maxCol; c++) {
-        const w = grid[r][c];
-        if (w > 0) {
-          weightedX += (c + 0.5) * w;
-          weightedY += (r + 0.5) * w;
-          weightSum += w;
-        }
-      }
+    for (const idx of component.pixels) {
+      const x = idx % cw;
+      const y = Math.floor(idx / cw);
+      if (x < bounds.minX || x > bounds.maxX || y < bounds.minY || y > bounds.maxY) continue;
+      const weight = getSkinPixelWeight(y, ch, edgeMask[idx], cfg);
+      weightedX += (x + 0.5) * weight;
+      weightedY += (y + 0.5) * weight;
+      weightSum += weight;
     }
 
-    // Map bounding rectangle back to source coordinates
-    const faceX = minCol * (srcW / gridCols);
-    const faceY = minRow * (srcH / gridRows);
-    const faceW = (maxCol - minCol + 1) * (srcW / gridCols);
-    const faceH = (maxRow - minRow + 1) * (srcH / gridRows);
+    const scaleX = srcW / cw;
+    const scaleY = srcH / ch;
+    const faceX = bounds.minX * scaleX;
+    const faceY = bounds.minY * scaleY;
+    const faceW = regionW * scaleX;
+    const faceH = regionH * scaleY;
 
     const result = {
       x: faceX,
@@ -1839,21 +1920,121 @@
       height: faceH,
     };
 
-    // Attach density-weighted centroid when computation succeeded.
-    // Apply headroom shift: the skin centroid sits inside the face box
-    // (roughly nose bridge), but the full head extends above the hairline
-    // by ~33% of face height (hair/crown).  Shift cy upward to centre the
-    // full head in the crop window rather than just the face.
     if (weightSum > 0) {
-      result.cx = (weightedX / weightSum) * (srcW / gridCols);
-      const skinCy = (weightedY / weightSum) * (srcH / gridRows);
-      const headroomPx = faceH * cfg.SKIN_HEADROOM_SHIFT;
-      result.cy = skinCy - headroomPx;
+      result.cx = (weightedX / weightSum) * scaleX;
+      const skinCy = (weightedY / weightSum) * scaleY;
+      result.cy = skinCy - faceH * cfg.SKIN_HEADROOM_SHIFT;
     }
 
-    debug(`Skin heuristic: ${totalSkin} skin px, peak@(${bestCol},${bestRow}) density=${maxDensity.toFixed(1)}, region cols ${minCol}–${maxCol} rows ${minRow}–${maxRow}, centroid raw@(${(result.cx || faceX + faceW/2).toFixed(0)}, ${((result.cy || faceY + faceH/2)).toFixed(0)}) adjusted↑${(faceH * cfg.SKIN_HEADROOM_SHIFT).toFixed(0)}px`);
+    return result;
+  }
 
-    return [result];
+  function buildComponentRowData(component, cw) {
+    const height = component.maxY - component.minY + 1;
+    const rowCounts = new Array(height).fill(0);
+    const rowMinX = new Array(height).fill(Infinity);
+    const rowMaxX = new Array(height).fill(-Infinity);
+
+    for (const idx of component.pixels) {
+      const x = idx % cw;
+      const y = Math.floor(idx / cw);
+      const row = y - component.minY;
+      rowCounts[row]++;
+      if (x < rowMinX[row]) rowMinX[row] = x;
+      if (x > rowMaxX[row]) rowMaxX[row] = x;
+    }
+
+    return { rowCounts, rowMinX, rowMaxX, baseY: component.minY };
+  }
+
+  function boundsForRows(rowData, minY, maxY) {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let found = false;
+
+    for (let y = minY; y <= maxY; y++) {
+      const row = y - rowData.baseY;
+      if (row < 0 || row >= rowData.rowCounts.length || rowData.rowCounts[row] === 0) continue;
+      if (rowData.rowMinX[row] < minX) minX = rowData.rowMinX[row];
+      if (rowData.rowMaxX[row] > maxX) maxX = rowData.rowMaxX[row];
+      found = true;
+    }
+
+    if (!found) return null;
+    return { minX, maxX, minY, maxY };
+  }
+
+  function findDensityCliffCutoff(rowData, minY, maxY, cfg) {
+    const density = [];
+    for (let y = minY; y <= maxY; y++) {
+      const row = y - rowData.baseY;
+      density.push({ row: y, value: rowData.rowCounts[row] || 0 });
+    }
+
+    const startIdx = Math.floor(density.length / 2);
+    let bestDrop = 0;
+    let dropRow = maxY;
+    for (let i = startIdx; i < density.length - 1; i++) {
+      if (density[i].value <= 0) continue;
+      const drop = (density[i].value - density[i + 1].value) / density[i].value;
+      if (drop > bestDrop && drop >= cfg.SKIN_CLIFF_THRESHOLD) {
+        bestDrop = drop;
+        dropRow = density[i].row;
+      }
+    }
+
+    return dropRow;
+  }
+
+  function measureComponentTaper(component, cw) {
+    const rowData = buildComponentRowData(component, cw);
+    const height = rowData.rowCounts.length;
+    if (height <= 2) return 0.5;
+
+    const band = Math.max(1, Math.floor(height * 0.35));
+    let topWidth = 0;
+    let topRows = 0;
+    let bottomWidth = 0;
+    let bottomRows = 0;
+
+    for (let i = 0; i < band; i++) {
+      if (rowData.rowCounts[i] > 0) {
+        topWidth += rowData.rowMaxX[i] - rowData.rowMinX[i] + 1;
+        topRows++;
+      }
+    }
+    for (let i = height - band; i < height; i++) {
+      if (i >= 0 && rowData.rowCounts[i] > 0) {
+        bottomWidth += rowData.rowMaxX[i] - rowData.rowMinX[i] + 1;
+        bottomRows++;
+      }
+    }
+
+    if (topRows === 0 || bottomRows === 0) return 0.5;
+    const ratio = (bottomWidth / bottomRows) / Math.max(topWidth / topRows, 1);
+    return clamp01(1 - Math.abs(ratio - 0.85) / 0.55);
+  }
+
+  function getSkinPixelWeight(y, ch, hasEdge, cfg) {
+    let weight = 1.0;
+    if (cfg.SKIN_VERTICAL_WEIGHT_ENABLED) {
+      const vertFactor = 1.0 - cfg.SKIN_VERTICAL_WEIGHT_DECAY
+        * (y / Math.max(ch - 1, 1));
+      weight *= Math.max(0.1, vertFactor);
+    }
+    if (cfg.SKIN_EDGE_BONUS_ENABLED && hasEdge) {
+      weight += cfg.SKIN_EDGE_BONUS_WEIGHT;
+    }
+    return weight;
+  }
+
+  function scoreAspect(aspect, idealAspect) {
+    const diff = Math.abs(Math.log(aspect / idealAspect));
+    return clamp01(1 - diff / Math.log(1.9));
+  }
+
+  function clamp01(value) {
+    return Math.max(0, Math.min(1, value));
   }
 
   // ---------------------------------------------------------------------------
