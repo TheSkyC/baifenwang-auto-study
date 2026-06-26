@@ -2103,13 +2103,13 @@ export const STYLES = `
   }
 
   .bfw-changelog-text .desc {
-    display: block;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
     font-size: 10px;
     color: #6c7086;
     margin-top: 1px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   /* Card action buttons */
