@@ -214,8 +214,8 @@
      * Top row gets 1.0×, bottom row gets (1.0 − decay)×.
      */
     SKIN_VERTICAL_WEIGHT_ENABLED: true,
-    /** At 0.35 the bottom row gets 0.65× the weight of the top row. */
-    SKIN_VERTICAL_WEIGHT_DECAY: 0.35,
+    /** At 0.45 the bottom row gets 0.55× the weight of the top row. */
+    SKIN_VERTICAL_WEIGHT_DECAY: 0.45,
 
     // ---- Layer 3: Edge-density bonus ----
     /**
@@ -265,11 +265,11 @@
      *   Hair/crown above hairline = ~35–40% of face height
      *   User measurement: hair 60px : face 160px → 0.375 ratio
      *
-     * 0.15 × faceH shifts the centroid from the skin centre (roughly
-     * nose bridge) up toward the eye/forehead level so the crop window
+     * 0.24 × faceH shifts the centroid from the skin centre (roughly
+     * nose bridge) up toward the hairline/crown so the crop window
      * includes the full head with comfortable headroom.
      */
-    SKIN_HEADROOM_SHIFT: 0.15,
+    SKIN_HEADROOM_SHIFT: 0.24,
 
     // ---- Tier 2: Fixed-bias fallback ----
     /**

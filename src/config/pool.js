@@ -175,6 +175,17 @@ export const FACE_DETECT_CONFIG = {
   SKIN_COMPONENT_MIN_EDGE_RATIO: 0.012,
   SKIN_COMPONENT_HARD_MIN_EDGE_RATIO: 0.006,
   /**
+   * Larger, smooth components with no internal holes are likely cabinets,
+   * walls, or other solid background objects rather than actual faces.
+   */
+  SKIN_COMPONENT_HOLELESS_REJECT_AREA_RATIO: 0.03,
+  SKIN_COMPONENT_HOLELESS_MAX_EDGE_RATIO: 0.018,
+  /** Minimum enclosed non-skin pixels for a region to count as a true hole. */
+  SKIN_COMPONENT_MIN_HOLE_PIXELS: 2,
+  /** Hole-count scoring range on the low-resolution sample canvas. */
+  SKIN_COMPONENT_IDEAL_HOLE_COUNT: 2,
+  SKIN_COMPONENT_MAX_HOLE_SCORE_COUNT: 6,
+  /**
    * Best-candidate confidence gates.  When the top component is weak or the
    * top two are too close, the heuristic falls back to the fixed crop bias.
    */
@@ -184,9 +195,16 @@ export const FACE_DETECT_CONFIG = {
   SKIN_SCORE_WEIGHT_AREA: 0.90,
   SKIN_SCORE_WEIGHT_VERTICAL: 0.85,
   SKIN_SCORE_WEIGHT_EDGE: 1.35,
+  SKIN_SCORE_WEIGHT_HOLE: 1.05,
   SKIN_SCORE_WEIGHT_ASPECT: 0.85,
   SKIN_SCORE_WEIGHT_SHARE: 0.45,
   SKIN_SCORE_WEIGHT_TAPER: 0.35,
+
+  // ---- Morphology (P1 denoising) ----
+  /** Apply a lightweight opening pass to break weak bridges before CCL. */
+  SKIN_OPENING_ENABLED: true,
+  /** 1 = 3×3 neighbourhood. */
+  SKIN_OPENING_RADIUS: 1,
 
   // ---- Layer 1: Vertical position prior ----
   /**
@@ -199,8 +217,8 @@ export const FACE_DETECT_CONFIG = {
    * Top row gets 1.0×, bottom row gets (1.0 − decay)×.
    */
   SKIN_VERTICAL_WEIGHT_ENABLED: true,
-  /** At 0.35 the bottom row gets 0.65× the weight of the top row. */
-  SKIN_VERTICAL_WEIGHT_DECAY: 0.35,
+  /** At 0.45 the bottom row gets 0.55× the weight of the top row. */
+  SKIN_VERTICAL_WEIGHT_DECAY: 0.45,
 
   // ---- Layer 2: Directional asymmetric expansion ----
   /**
@@ -277,11 +295,11 @@ export const FACE_DETECT_CONFIG = {
    *   Hair/crown above hairline = ~35–40% of face height
    *   User measurement: hair 60px : face 160px → 0.375 ratio
    *
-   * 0.15 × faceH shifts the centroid from the skin centre (roughly
-   * nose bridge) up toward the eye/forehead level so the crop window
+   * 0.24 × faceH shifts the centroid from the skin centre (roughly
+   * nose bridge) up toward the hairline/crown so the crop window
    * includes the full head with comfortable headroom.
    */
-  SKIN_HEADROOM_SHIFT: 0.15,
+  SKIN_HEADROOM_SHIFT: 0.24,
 
   // ---- Tier 2: Fixed-bias fallback ----
   /**
