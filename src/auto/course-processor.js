@@ -22,6 +22,7 @@ import { getSetting, onChange } from '../settings.js';
 import { info, debug, warn } from '../utils/logger.js';
 import { appendLog, setStatus, updateCourseProgress } from '../ui/builder.js';
 import { startSession, updateSession, endSession, getProgressData } from '../utils/progress-tracker.js';
+import { resetNoRepeatState } from '../pool/image-pool.js';
 
 // ---------------------------------------------------------------------------
 // DOM Selectors
@@ -553,6 +554,16 @@ function scheduleStuckCheck() {
 function pushProgress() {
   const courseProgress = parseCourseProgress();
   const videoInfo = getVideoInfo();
+
+  // Detect course transition (SPA navigation to a new course).
+  // When the platform auto-navigates to the next course after face
+  // verification, reset the no-repeat exclusion so images used in the
+  // previous course are eligible again.
+  if (currentCourseId && courseProgress.courseId && currentCourseId !== courseProgress.courseId) {
+    debug(`Course: transition detected "${currentCourseId}" → "${courseProgress.courseId}" — resetting no-repeat state`);
+    resetNoRepeatState();
+    currentCourseId = courseProgress.courseId;
+  }
 
   updateCourseProgress({
     ...courseProgress,

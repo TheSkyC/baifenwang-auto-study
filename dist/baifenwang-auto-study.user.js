@@ -13188,6 +13188,16 @@
     const courseProgress = parseCourseProgress();
     const videoInfo = getVideoInfo();
 
+    // Detect course transition (SPA navigation to a new course).
+    // When the platform auto-navigates to the next course after face
+    // verification, reset the no-repeat exclusion so images used in the
+    // previous course are eligible again.
+    if (currentCourseId && courseProgress.courseId && currentCourseId !== courseProgress.courseId) {
+      debug(`Course: transition detected "${currentCourseId}" → "${courseProgress.courseId}" — resetting no-repeat state`);
+      resetNoRepeatState();
+      currentCourseId = courseProgress.courseId;
+    }
+
     updateCourseProgress({
       ...courseProgress,
       videoProgress: videoInfo.progress,
