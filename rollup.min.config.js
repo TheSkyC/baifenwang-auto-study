@@ -27,7 +27,7 @@ export default {
     metablock({
       file: './metablock.json',
       override: {
-        version: '1.1.0',
+        version: '1.2.0',
       },
     }),
 

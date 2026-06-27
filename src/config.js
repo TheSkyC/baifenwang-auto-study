@@ -6,7 +6,7 @@
 
 // Script metadata
 export const SCRIPT_NAME = '百分网自动刷课助手';
-export const SCRIPT_VERSION = '1.1.0';
+export const SCRIPT_VERSION = '1.2.0';
 export const GITHUB_URL = 'https://github.com/TheSkyC/baifenwang-auto-study';
 export const GREASYFORK_URL = 'https://greasyfork.org/zh-CN/scripts/583943';
 export const UPDATE_API_URL = 'https://baifenwang-auto-study.tarxf.com';

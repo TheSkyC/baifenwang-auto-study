@@ -4,6 +4,22 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.0] - 2026-06-27
+
+### 新增
+
+- **智能肤色人脸检测裁剪** — 将原有的固定垂直偏置裁剪（0.38 bias）升级为 YCbCr 肤色启发式检测管线（`src/utils/face-detect.js`），上传图片时自动识别面部区域，裁剪更精准、减少颈部误裁。管线包含六层分析：8×6 密度网格编码（`GatherGrid`）、连通分量提取（`collectSkinComponents`，4-邻接漫水填充）、六维评分排序（面积、垂直位置、边缘密度、宽高比、占比、维度收窄，阈值 `SKIN_COMPONENT_SCORE_THRESHOLD` = 2.35）、孔洞计数评分与无孔区域拒识、形态学开运算去噪（`SKIN_OPENING_ENABLED`）、方向性非对称扩展（上/下/侧三个独立阈值防止颈部渗入）与密度断崖检测（`SKIN_CLIFF_DETECT_ENABLED`）定位下巴→颈部过渡。检测成功时使用密度加权质心替代几何中心框作为精确关注点，裁剪偏置收紧至 0.40（vs 兜底 0.38）；失败时静默回退至固定偏置，降级对用户透明。整条管线在降采样画布上一遍扫描完成（最长边 100px），增量成本 < 8ms。配置文件新增 50+ 可调参数（`FACE_DETECT_CONFIG`，`src/config/pool.js:117-319`）。
+
+- **人脸预览测试面板** — 图片池面板新增入口，点击图片可打开模态框（`src/ui/face-preview.js`）。功能包括：实时预览图片变异后的最终效果（调用 `mutateImageWithMeta` 渲染至 canvas）、逐项查看变异参数详情（亮度、对比度、饱和度、色调、翻转、旋转、缩放、JPEG 质量）、可视化人脸检测几何信息（肤色区域边界框、裁剪矩形、关注点叠加层）、图片导航（上一张/下一张/随机，支持 pin 锁定防止跳转）、一键推送当前变异结果到活跃摄像头流（`pushImageToActiveStream`，无需重建 MediaStream）。检测结果按层级标注标签（「肤色启发式」/「固定偏置」），便于用户理解每张图的裁剪决策。
+
+- **已验证人脸去重** — 图片池新增去重机制（`NO_REPEAT_ENABLED`），人脸验证成功后自动排除该图片，避免同一面孔连续出现。支持两种模式（`NO_REPEAT_MODE`）：`session` 模式在课程内排除所有成功验证的图片，切换课程时自动重置排除名单（`course-processor.js` 检测 `currentCourseId` 变更）；`last` 模式仅排除最近一次成功的图片，适合图片较少的小池子。边界情况处理：所有图片均被排除时自动回退至全池选择并输出 debug 日志；被排除的图片从池中移除时自动清理相应排除记录（`removeImage`、`clearPool`）；自动序列启动和重置时同步清零。
+
+### 内部改进
+
+- **裁剪管线精简**：移除从未在浏览器中交付的 FaceDetector API 检测层，裁剪管线从三级降为两级（肤色启发式 → 固定偏置兜底），减少 ~130 行死代码，消除对 `FaceDetector` 构造函数的运行时检测开销。
+
+- **CI/CD 修复**：Release 工作流中 R2 上传改用 S3 兼容 API（`s3:PutObject`），R2 资源按项目 slug 命名空间隔离（`baifenwang-auto-study/`），构建工作流允许 GitHub Actions 推送 dist 产物回 master，发布元数据通过 `scripts/inject-release.mjs` 直接注入 Worker 源码替代运行时请求。
+
 ## [1.1.0] - 2026-06-26
 
 ### 新增

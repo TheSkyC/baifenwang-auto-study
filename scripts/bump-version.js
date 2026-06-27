@@ -388,7 +388,7 @@ if (DRY_RUN) {
   console.log(`    1. Fill in the changelog in worker/src/index.js (marked TODO)`);
   console.log(`    2. Update worker/src/index.js publishedAt if needed`);
   console.log(`    3. Run: npm run build`);
-  console.log(`    4. Commit: git add -A && git commit -m "chore(release): bump to v${newVersion}"`);
+  console.log(`    4. Commit: git add -A && git commit -m "chore(release): bump version to ${newVersion}"`);
   console.log(`    5. Deploy worker: cd worker && npm run deploy`);
 } else {
   console.log(`\n  Completed with ${errors.length} error(s). Check output above.`);

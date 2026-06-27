@@ -25,12 +25,25 @@
 // Embedded release catalog — update on each release
 // ---------------------------------------------------------------------------
 
-const LATEST_VERSION = '1.1.0';
+const LATEST_VERSION = '1.2.0';
 const GITHUB_REPO = 'TheSkyC/baifenwang-auto-study';
 const DOWNLOAD_PATH = '/latest.user.js';
 
 /** @type {Record<string, object>} */
 const RELEASES = {
+  '1.2.0': {
+    version: '1.2.0',
+    publishedAt: '2026-06-27T00:00:00Z',
+    downloadUrl: `https://github.com/${GITHUB_REPO}/releases/download/v1.2.0/baifenwang-auto-study.user.js`,
+    changelog: [
+      { type: 'feat', title: '智能肤色人脸检测', description: '上传图片对面部区域的裁剪更精准' },
+      { type: 'feat', title: '人脸预览测试面板', description: '支持预览变异效果与检测几何信息' },
+      { type: 'feat', title: '已验证人脸去重', description: '验证成功的人脸本次课程不再复用' },
+    ],
+    source: {
+      releaseUrl: `https://github.com/${GITHUB_REPO}/releases/tag/v1.2.0`,
+    },
+  },
   '1.1.0': {
     version: '1.1.0',
     publishedAt: '2026-06-26T00:00:00Z',
