@@ -132,7 +132,6 @@ export function createStatsSection() {
 
       <!-- Actions -->
       <div class="bfw-stats-actions">
-        <button class="bfw-btn bfw-btn-ghost" id="bfw-btn-export-stats" title="导出统计数据为 JSON">${icons.download} 导出</button>
         <button class="bfw-btn bfw-btn-danger" id="bfw-btn-clear-stats">清空统计</button>
       </div>
     </div>
@@ -489,13 +488,11 @@ function escapeHtml(str) {
  *
  * @param {HTMLElement} panel
  * @param {Function} onClearStats - Callback when clear button is clicked
- * @param {Function} onExportStats - Callback when export button is clicked
  */
-export function bindStatsEvents(panel, onClearStats, onExportStats) {
+export function bindStatsEvents(panel, onClearStats) {
   const toggle = panel.querySelector('.bfw-stats-toggle');
   const content = panel.querySelector('.bfw-stats-content');
   const clearBtn = panel.querySelector('#bfw-btn-clear-stats');
-  const exportBtn = panel.querySelector('#bfw-btn-export-stats');
 
   const header = panel.querySelector('.bfw-stats-header');
   if (header && toggle && content) {
@@ -521,12 +518,6 @@ export function bindStatsEvents(panel, onClearStats, onExportStats) {
         if (onClearStats) await onClearStats();
         refreshStats(panel);
       }
-    });
-  }
-
-  if (exportBtn) {
-    exportBtn.addEventListener('click', () => {
-      if (onExportStats) onExportStats();
     });
   }
 }

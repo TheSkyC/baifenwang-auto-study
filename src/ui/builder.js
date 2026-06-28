@@ -12,13 +12,14 @@
 import { STYLES } from './styles.js';
 import { icons } from './icons.js';
 import { SCRIPT_NAME, SCRIPT_VERSION, GITHUB_URL, GREASYFORK_URL } from '../config.js';
-import { bindDrawer, bindActions, bindPoolEvents, bindSettings } from './events.js';
+import { bindDrawer, bindActions, bindPoolEvents, bindSettings, bindImportExport } from './events.js';
 import { listEntries, poolSize, poolCapacity, getImageData, getImageStats, getImageQualityTier } from '../pool/image-pool.js';
 import { openCropEditor } from './crop-editor.js';
 import { createStatsSection, bindStatsEvents, refreshStats } from './progress-stats.js';
-import { clearAllProgress, exportProgress } from '../utils/progress-tracker.js';
+import { clearAllProgress } from '../utils/progress-tracker.js';
 import { checkPageVersion } from '../utils/version-checker.js';
 import { checkForUpdate, invalidateUpdateCache, ignoreVersion, clearIgnoredVersion } from '../utils/update-checker.js';
+import { estimateExportSize, formatSize, buildBackupBlob, parseBackupFile, buildSummary, executeImport } from '../utils/import-export.js';
 
 let panelEl = null;
 
@@ -975,6 +976,12 @@ function createPanelDOM() {
         <!-- Progress Stats Section (inserted by createStatsSection) -->
         <div id="bfw-stats-placeholder"></div>
 
+        <!-- Data Management (import/export backup) -->
+        <div class="bfw-data-mgmt">
+          <button class="bfw-btn bfw-btn-ghost bfw-data-btn" id="bfw-btn-export-data" title="导出全部数据为 ZIP 备份">${icons.download} 导出备份</button>
+          <button class="bfw-btn bfw-btn-ghost bfw-data-btn" id="bfw-btn-import-data" title="从 ZIP 备份文件恢复数据">${icons.upload} 导入备份</button>
+        </div>
+
         <!-- Image Pool Section -->
         <div class="bfw-pool-section">
           <div class="bfw-pool-header">
@@ -1076,6 +1083,7 @@ export function buildUI() {
   bindActions(panelEl);
   bindPoolEvents(panelEl);
   bindSettings(panelEl);
+  bindImportExport(panelEl);
 
   // Note: bfw:retry bubbles to document where processor.js handles it
   // (the processor logs "已触发手动重试" and performs the actual retry scan)
@@ -1089,19 +1097,6 @@ export function buildUI() {
     // Bind stats events
     bindStatsEvents(panelEl,
       clearAllProgress,
-      () => {
-        const data = exportProgress();
-        const json = JSON.stringify(data, null, 2);
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        // Use local date format for filename
-        const date = new Date().toLocaleDateString('zh-CN').replace(/\//g, '-');
-        a.download = `bfw-stats-${date}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
     );
 
     // Initial stats refresh
@@ -1112,6 +1107,554 @@ export function buildUI() {
   refreshPoolUI(panelEl);
 
   return panelEl;
+}
+
+// ===========================================================================
+// Import / Export modal — backup & restore ZIP dialog
+// ===========================================================================
+
+/**
+ * Build progress-bar weight entries for the selected sections.
+ *
+ * Each enabled section is assigned a relative weight used to compute
+ * per-section percentage ranges within the overall 0-100% progress bar.
+ *
+ * @param {{ settings: boolean, progress: boolean, imagePool: boolean }} sections
+ * @returns {{ key: string, w: number, range: [number, number] }[]}
+ */
+function buildIEModalWeights(sections) {
+  const weights = [];
+  if (sections.settings) weights.push({ key: 'settings', w: 1, range: [0, 0] });
+  if (sections.progress) weights.push({ key: 'progress', w: 1, range: [0, 0] });
+  if (sections.imagePool) weights.push({ key: 'imagePool', w: 3, range: [0, 0] });
+
+  // Compute per-section percentage ranges
+  const totalW = weights.reduce((s, o) => s + o.w, 0);
+  let acc = 0;
+  for (const o of weights) {
+    o.range = [acc / totalW * 100, (acc + o.w) / totalW * 100];
+    acc += o.w;
+  }
+  return weights;
+}
+
+/** Currently active import/export modal (null when none open). */
+let _ieModal = null;
+/** Active modal type: 'export' or 'import' */
+let _ieType = null;
+/** JSZip reference retained after parseBackupFile for executeImport. */
+let _ieZipRef = null;
+/** Manifest data from the parsed backup file. */
+let _ieManifest = null;
+
+/**
+ * Close and destroy the active import/export modal.
+ */
+export function closeIEModal() {
+  if (_ieModal) {
+    if (_ieModal.parentNode) _ieModal.parentNode.removeChild(_ieModal);
+    _ieModal = null;
+    _ieType = null;
+    _ieZipRef = null;
+    _ieManifest = null;
+  }
+}
+
+/**
+ * Show the export modal.  Builds the DOM, attaches event handlers, and
+ * manages the progress bar / file download flow.
+ */
+export function showExportModal() {
+  closeIEModal();
+  _ieType = 'export';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'bfw-ie-overlay';
+  _ieModal = overlay;
+
+  const estimates = estimateExportSize({ settings: true, progress: true, imagePool: true });
+
+  overlay.innerHTML = `
+    <div class="bfw-ie-modal">
+      <div class="bfw-ie-header">
+        <span class="bfw-ie-title">${icons.package} 导出备份</span>
+        <button class="bfw-ie-close" id="bfw-ie-close" title="关闭">${icons.x}</button>
+      </div>
+      <div class="bfw-ie-body" id="bfw-ie-body">
+        <div class="bfw-ie-section" data-section="settings">
+          <input type="checkbox" class="bfw-ie-section-check" id="bfw-ie-chk-settings" checked />
+          <span class="bfw-ie-section-icon">${icons.settings}</span>
+          <div class="bfw-ie-section-info">
+            <div class="bfw-ie-section-name">设置</div>
+            <div class="bfw-ie-section-detail">6 项配置</div>
+          </div>
+          <span class="bfw-ie-section-size">~0.2 KB</span>
+        </div>
+        <div class="bfw-ie-section" data-section="progress">
+          <input type="checkbox" class="bfw-ie-section-check" id="bfw-ie-chk-progress" checked />
+          <span class="bfw-ie-section-icon">${icons.database}</span>
+          <div class="bfw-ie-section-info">
+            <div class="bfw-ie-section-name">学习进度</div>
+            <div class="bfw-ie-section-detail" id="bfw-ie-progress-detail">会话记录与课程统计</div>
+          </div>
+          <span class="bfw-ie-section-size" id="bfw-ie-progress-size">~0 KB</span>
+        </div>
+        <div class="bfw-ie-section" data-section="imagePool">
+          <input type="checkbox" class="bfw-ie-section-check" id="bfw-ie-chk-images" checked />
+          <span class="bfw-ie-section-icon">${icons.archive}</span>
+          <div class="bfw-ie-section-info">
+            <div class="bfw-ie-section-name">图片池</div>
+            <div class="bfw-ie-section-detail" id="bfw-ie-images-detail">已存储的验证图片</div>
+          </div>
+          <span class="bfw-ie-section-size" id="bfw-ie-images-size">~0 MB</span>
+        </div>
+        <div class="bfw-ie-estimate" id="bfw-ie-estimate">
+          预计文件大小: <strong id="bfw-ie-estimate-value">--</strong>
+        </div>
+        <div class="bfw-ie-progress" id="bfw-ie-progress">
+          <div class="bfw-ie-progress-bar">
+            <div class="bfw-ie-progress-fill" id="bfw-ie-progress-fill"></div>
+          </div>
+          <div class="bfw-ie-progress-text" id="bfw-ie-progress-text">准备...</div>
+        </div>
+      </div>
+      <div class="bfw-ie-footer">
+        <button class="bfw-ie-btn bfw-ie-btn-cancel" id="bfw-ie-btn-cancel">取消</button>
+        <button class="bfw-ie-btn bfw-ie-btn-primary" id="bfw-ie-btn-primary" disabled>导出</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  // ---- DOM refs ----
+  const btnPrimary = overlay.querySelector('#bfw-ie-btn-primary');
+  const btnCancel = overlay.querySelector('#bfw-ie-btn-cancel');
+  const btnClose = overlay.querySelector('#bfw-ie-close');
+  const progressEl = overlay.querySelector('#bfw-ie-progress');
+  const progressFill = overlay.querySelector('#bfw-ie-progress-fill');
+  const progressText = overlay.querySelector('#bfw-ie-progress-text');
+  const estimateEl = overlay.querySelector('#bfw-ie-estimate');
+  const estimateVal = overlay.querySelector('#bfw-ie-estimate-value');
+  const chkSettings = overlay.querySelector('#bfw-ie-chk-settings');
+  const chkProgress = overlay.querySelector('#bfw-ie-chk-progress');
+  const chkImages = overlay.querySelector('#bfw-ie-chk-images');
+  const detailProgress = overlay.querySelector('#bfw-ie-progress-detail');
+  const detailImages = overlay.querySelector('#bfw-ie-images-detail');
+  const sizeProgress = overlay.querySelector('#bfw-ie-progress-size');
+  const sizeImages = overlay.querySelector('#bfw-ie-images-size');
+  const sectionsDiv = overlay.querySelectorAll('.bfw-ie-section');
+
+  // ---- Populate initial estimates ----
+  function refreshEstimates() {
+    const s = chkSettings.checked;
+    const p = chkProgress.checked;
+    const im = chkImages.checked;
+    btnPrimary.disabled = !(s || p || im);
+
+    const est = estimateExportSize({ settings: s, progress: p, imagePool: im });
+    if (s) sizeProgress.textContent = formatSize(est.progress);
+    else sizeProgress.textContent = '--';
+    if (im) sizeImages.textContent = formatSize(est.imagePool);
+    else sizeImages.textContent = '--';
+    estimateVal.textContent = formatSize(est.total);
+  }
+
+  // Clicking section label toggles the checkbox
+  sectionsDiv.forEach(sec => {
+    sec.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT') return; // let checkbox handle itself
+      const cb = sec.querySelector('input[type="checkbox"]');
+      if (cb) {
+        cb.checked = !cb.checked;
+        cb.dispatchEvent(new Event('change'));
+      }
+    });
+  });
+
+  chkSettings.addEventListener('change', refreshEstimates);
+  chkProgress.addEventListener('change', refreshEstimates);
+  chkImages.addEventListener('change', refreshEstimates);
+  refreshEstimates();
+
+  // ---- Close handlers ----
+  const onEsc = (e) => { if (e.key === 'Escape') close(); };
+  function close() {
+    document.removeEventListener('keydown', onEsc);
+    closeIEModal();
+  }
+  btnCancel.addEventListener('click', close);
+  btnClose.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+  document.addEventListener('keydown', onEsc);
+
+  // ---- Export action ----
+  btnPrimary.addEventListener('click', async () => {
+    const sections = {
+      settings: chkSettings.checked,
+      progress: chkProgress.checked,
+      imagePool: chkImages.checked,
+    };
+    if (!sections.settings && !sections.progress && !sections.imagePool) return;
+
+    // Disable controls during export
+    btnPrimary.disabled = true;
+    btnPrimary.textContent = '正在导出...';
+    btnCancel.disabled = true;
+    chkSettings.disabled = true;
+    chkProgress.disabled = true;
+    chkImages.disabled = true;
+    estimateEl.style.display = 'none';
+    progressEl.classList.add('active');
+
+    // Track per-section progress
+    const weights = buildIEModalWeights(sections);
+
+    try {
+      const blob = await buildBackupBlob(sections, (phase, pct, detail) => {
+        // Map phase pct to overall pct
+        const w = weights.find(o => o.key === phase);
+        let overall = 0;
+        if (w) {
+          overall = w.range[0] + (pct / 100) * (w.range[1] - w.range[0]);
+        } else if (phase === 'done') {
+          overall = pct; // 0-100 from JSZip
+        }
+        progressFill.style.width = `${Math.round(overall)}%`;
+        if (detail) progressText.textContent = detail;
+      });
+
+      // Trigger download
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const date = new Date().toLocaleDateString('zh-CN').replace(/\//g, '-');
+      const time = `${String(new Date().getHours()).padStart(2, '0')}${String(new Date().getMinutes()).padStart(2, '0')}`;
+      a.download = `bfw-backup-${date}-${time}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      progressText.textContent = '导出完成！';
+      // Auto-close after brief delay
+      setTimeout(close, 1500);
+    } catch (e) {
+      progressText.textContent = `导出失败: ${e.message}`;
+      progressText.style.color = '#f38ba8';
+      // Re-enable controls so user can adjust and retry
+      btnPrimary.disabled = false;
+      btnPrimary.textContent = '导出';
+      btnCancel.disabled = false;
+      btnCancel.textContent = '取消';
+      chkSettings.disabled = false;
+      chkProgress.disabled = false;
+      chkImages.disabled = false;
+      estimateEl.style.display = '';
+      progressEl.classList.remove('active');
+    }
+  });
+}
+
+/**
+ * Show the import modal.  The flow is two-step:
+ *   1. File selection → parse → preview with section checkboxes + strategies
+ *   2. Confirm → execute import with progress bar
+ *
+ * @param {HTMLElement} panel
+ */
+export function showImportModal(panel) {
+  closeIEModal();
+  _ieType = 'import';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'bfw-ie-overlay';
+  _ieModal = overlay;
+
+  // Step 1: File picker view
+  overlay.innerHTML = `
+    <div class="bfw-ie-modal">
+      <div class="bfw-ie-header">
+        <span class="bfw-ie-title">${icons.folderOpen} 导入备份</span>
+        <button class="bfw-ie-close" id="bfw-ie-close" title="关闭">${icons.x}</button>
+      </div>
+      <div class="bfw-ie-body" id="bfw-ie-body">
+        <!-- File selection area (click or drag) -->
+        <div class="bfw-ie-section bfw-ie-file-pick" id="bfw-ie-file-pick">
+          <span style="color:#89b4fa;pointer-events:none;">${icons.upload}</span>
+          <span style="font-size:13px;font-weight:600;color:#cdd6f4;pointer-events:none;">点击选择备份文件 或拖拽 .zip 到这里</span>
+          <span style="font-size:11px;color:#585b70;pointer-events:none;">支持 .zip 格式</span>
+          <input type="file" id="bfw-ie-file-input" accept=".zip,application/zip" hidden />
+        </div>
+        <!-- Preview area (hidden initially) -->
+        <div id="bfw-ie-preview" style="display:none;">
+          <div class="bfw-ie-summary" id="bfw-ie-summary"></div>
+          <div id="bfw-ie-sections"></div>
+        </div>
+        <div class="bfw-ie-errors" id="bfw-ie-errors">
+          <div class="bfw-ie-errors-title">${icons.alertTriangle} 导入问题</div>
+          <div id="bfw-ie-errors-list"></div>
+        </div>
+        <div class="bfw-ie-progress" id="bfw-ie-progress">
+          <div class="bfw-ie-progress-bar">
+            <div class="bfw-ie-progress-fill" id="bfw-ie-progress-fill"></div>
+          </div>
+          <div class="bfw-ie-progress-text" id="bfw-ie-progress-text">准备...</div>
+        </div>
+        <div class="bfw-ie-result" id="bfw-ie-result"></div>
+      </div>
+      <div class="bfw-ie-footer">
+        <button class="bfw-ie-btn bfw-ie-btn-cancel" id="bfw-ie-btn-cancel">取消</button>
+        <button class="bfw-ie-btn bfw-ie-btn-primary" id="bfw-ie-btn-primary" disabled>选择文件后继续</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  // ---- DOM refs ----
+  const btnPrimary = overlay.querySelector('#bfw-ie-btn-primary');
+  const btnCancel = overlay.querySelector('#bfw-ie-btn-cancel');
+  const btnClose = overlay.querySelector('#bfw-ie-close');
+  const filePick = overlay.querySelector('#bfw-ie-file-pick');
+  const fileInput = overlay.querySelector('#bfw-ie-file-input');
+  const previewEl = overlay.querySelector('#bfw-ie-preview');
+  const summaryEl = overlay.querySelector('#bfw-ie-summary');
+  const sectionsEl = overlay.querySelector('#bfw-ie-sections');
+  const errorsEl = overlay.querySelector('#bfw-ie-errors');
+  const errorsList = overlay.querySelector('#bfw-ie-errors-list');
+  const progressEl = overlay.querySelector('#bfw-ie-progress');
+  const progressFill = overlay.querySelector('#bfw-ie-progress-fill');
+  const progressText = overlay.querySelector('#bfw-ie-progress-text');
+  const resultEl = overlay.querySelector('#bfw-ie-result');
+
+  /** Current strategy selections: 'replace' | 'merge' */
+  let strategies = { settings: 'replace', progress: 'merge', imagePool: 'merge' };
+  /** Selected sections for import */
+  let importSections = { settings: true, progress: true, imagePool: true };
+
+  // ---- Close handlers ----
+  const onEsc = (e) => { if (e.key === 'Escape') close(); };
+  function close() {
+    document.removeEventListener('keydown', onEsc);
+    closeIEModal();
+  }
+  btnCancel.addEventListener('click', close);
+  btnClose.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+  document.addEventListener('keydown', onEsc);
+
+  // ---- File picker (click + drag-drop) ----
+  filePick.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    await handlePickedFile(file);
+  });
+
+  // Drag-and-drop handlers
+  filePick.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    filePick.classList.add('dragover');
+  });
+  filePick.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    filePick.classList.remove('dragover');
+  });
+  filePick.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    filePick.classList.remove('dragover');
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    // Sync to hidden input so the file is accessible via the same reference
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    fileInput.files = dt.files;
+    handlePickedFile(file);
+  });
+
+  /**
+   * Parse the picked/ dropped file and populate the preview area.
+   * Extracted so both click-pick and drag-drop can share the same logic.
+   * @param {File} file
+   */
+  async function handlePickedFile(file) {
+    errorsList.innerHTML = '';
+    errorsEl.classList.remove('visible');
+    progressEl.classList.remove('active');
+    resultEl.classList.remove('visible');
+    resultEl.innerHTML = '';
+    btnPrimary.disabled = true;
+    btnPrimary.textContent = '正在解析...';
+
+    const result = await parseBackupFile(file);
+    _ieZipRef = result.zip;
+    _ieManifest = result.manifest;
+
+    if (!result.valid || result.errors.length > 0) {
+      errorsEl.classList.add('visible');
+      errorsList.innerHTML = result.errors.map(e => `<div>• ${escapeHtml(e)}</div>`).join('');
+      btnPrimary.textContent = '文件无效';
+      btnPrimary.disabled = true;
+      return;
+    }
+
+    // Build preview
+    const manifest = result.manifest;
+    const summaryLines = buildSummary(manifest);
+
+    summaryEl.innerHTML = `
+      <div class="bfw-ie-summary-header">
+        ${icons.fileText} 备份文件信息
+      </div>
+      ${summaryLines.map(l => `<div>${escapeHtml(l)}</div>`).join('')}
+    `;
+
+    // Build section checkboxes with strategy selectors
+    const availableSections = manifest.sections || {};
+    let sectionsHTML = '';
+
+    const sectionDefs = [
+      { key: 'settings', icon: icons.settings, name: '设置', detail: (availableSections.settings ? `${availableSections.settings.count || '?'} 项` : '无数据'), hasMerge: false },
+      { key: 'progress', icon: icons.database, name: '学习进度', detail: (availableSections.progress ? `${availableSections.progress.sessions || 0} 次学习, ${availableSections.progress.courses || 0} 门课程` : '无数据'), hasMerge: true },
+      { key: 'imagePool', icon: icons.archive, name: '图片池', detail: (availableSections.imagePool ? `${availableSections.imagePool.count || 0} 张图片` : '无数据'), hasMerge: true },
+    ];
+
+    for (const def of sectionDefs) {
+      const hasData = !!availableSections[def.key];
+      const strategyHTML = def.hasMerge ? `
+        <div class="bfw-ie-section-strategy">
+          <button class="bfw-ie-strategy-btn ${strategies[def.key] === 'replace' ? 'active' : ''}" data-section="${def.key}" data-strategy="replace">替换</button>
+          <button class="bfw-ie-strategy-btn ${strategies[def.key] === 'merge' ? 'active' : ''}" data-section="${def.key}" data-strategy="merge">合并</button>
+        </div>
+      ` : '';
+
+      sectionsHTML += `
+        <div class="bfw-ie-section ${hasData ? '' : 'disabled'}" data-section="${def.key}">
+          <input type="checkbox" class="bfw-ie-section-check" id="bfw-ie-chk-${def.key}"
+            ${hasData ? 'checked' : ''} ${hasData ? '' : 'disabled'} />
+          <span class="bfw-ie-section-icon">${def.icon}</span>
+          <div class="bfw-ie-section-info">
+            <div class="bfw-ie-section-name">${def.name}</div>
+            <div class="bfw-ie-section-detail">${escapeHtml(def.detail)}</div>
+          </div>
+          ${strategyHTML}
+        </div>
+      `;
+    }
+
+    sectionsEl.innerHTML = sectionsHTML;
+    previewEl.style.display = '';
+
+    // Bind section checkbox changes
+    sectionsEl.querySelectorAll('.bfw-ie-section-check').forEach(cb => {
+      cb.addEventListener('change', () => {
+        importSections[cb.id.replace('bfw-ie-chk-', '')] = cb.checked;
+      });
+    });
+
+    // Bind strategy button changes
+    sectionsEl.querySelectorAll('.bfw-ie-strategy-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const section = btn.dataset.section;
+        const strategy = btn.dataset.strategy;
+        strategies[section] = strategy;
+        // Update active states
+        sectionsEl.querySelectorAll(`.bfw-ie-strategy-btn[data-section="${section}"]`).forEach(b => {
+          b.classList.toggle('active', b.dataset.strategy === strategy);
+        });
+      });
+    });
+
+    // Enable primary button
+    btnPrimary.textContent = '执行导入';
+    btnPrimary.disabled = false;
+  }
+
+  // ---- Import execution ----
+  btnPrimary.addEventListener('click', async () => {
+    if (!_ieZipRef) return;
+
+    // Collect selected sections
+    const sections = {};
+    for (const key of ['settings', 'progress', 'imagePool']) {
+      const cb = overlay.querySelector(`#bfw-ie-chk-${key}`);
+      sections[key] = cb ? cb.checked : false;
+    }
+
+    const hasAny = sections.settings || sections.progress || sections.imagePool;
+    if (!hasAny) return;
+
+    // Disable controls
+    btnPrimary.disabled = true;
+    btnPrimary.textContent = '正在导入...';
+    btnCancel.disabled = true;
+    filePick.style.display = 'none';
+    previewEl.style.opacity = '0.5';
+    previewEl.style.pointerEvents = 'none';
+    progressEl.classList.add('active');
+
+    // Section weights
+    const weights = buildIEModalWeights(sections);
+
+    try {
+      const results = await executeImport(_ieZipRef, sections, strategies, (phase, pct, detail) => {
+        const w = weights.find(o => o.key === phase);
+        let overall = 0;
+        if (w) {
+          overall = w.range[0] + (pct / 100) * (w.range[1] - w.range[0]);
+        }
+        progressFill.style.width = `${Math.round(overall)}%`;
+        if (detail) progressText.textContent = detail;
+      });
+
+      progressText.textContent = '导入完成！';
+
+      // Show result summary
+      const items = [];
+      if (results.settings) {
+        items.push(`<div class="bfw-ie-result-item success">${icons.checkCircle} 设置: 已导入 ${results.settings.imported} 项</div>`);
+      }
+      if (results.progress) {
+        items.push(`<div class="bfw-ie-result-item success">${icons.checkCircle} 学习进度: ${results.progress.sessions} 次学习, ${results.progress.courses} 门课程</div>`);
+      }
+      if (results.imagePool) {
+        const r = results.imagePool;
+        const icon = r.skipped > 0 ? (r.added > 0 ? icons.alertTriangle : icons.x) : icons.checkCircle;
+        const cls = r.skipped > 0 ? (r.added > 0 ? 'warn' : 'error') : 'success';
+        items.push(`<div class="bfw-ie-result-item ${cls}">${icon} 图片池: 已导入 ${r.added} 张${r.skipped > 0 ? `, 跳过 ${r.skipped} 张` : ''}</div>`);
+      }
+
+      resultEl.innerHTML = items.join('');
+      resultEl.classList.add('visible');
+
+      // Refresh panel UI
+      const target = panel || panelEl;
+      if (target) {
+        refreshPoolUI(target);
+        refreshStats(target);
+      }
+
+      btnPrimary.textContent = '导入完成';
+      btnPrimary.disabled = true;
+      btnCancel.textContent = '关闭';
+      btnCancel.disabled = false;
+    } catch (e) {
+      progressText.textContent = `导入失败: ${e.message}`;
+      progressText.style.color = '#f38ba8';
+      btnPrimary.textContent = '导入失败';
+      btnPrimary.disabled = true;
+      btnCancel.textContent = '关闭';
+      btnCancel.disabled = false;
+    }
+  });
 }
 
 /**

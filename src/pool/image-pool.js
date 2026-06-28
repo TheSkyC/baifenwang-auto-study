@@ -730,6 +730,18 @@ function weightedRandomIndex(weights) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Force a full reload of the pool from storage.
+ * Resets the ready flag so initPool() re-reads metadata and stats.
+ * Used by import-export after writing directly to storage.
+ *
+ * @returns {Promise<void>}
+ */
+export async function reloadPool() {
+  _ready = false;
+  await initPool();
+}
+
+/**
  * Initialize the image pool.  Must be called once before any other operations.
  * Idempotent — subsequent calls are no-ops.
  *

@@ -36,6 +36,18 @@ export const PROGRESS_TRACKER_CONFIG = {
   RESUME_MAX_AGE_MS: 4 * 60 * 60 * 1000,  // 4 hours
 };
 
+// Import / export constants
+export const IMPORT_EXPORT_CONFIG = {
+  /** Current backup format version. Increment when the ZIP layout changes. */
+  FORMAT_VERSION: 1,
+  /** Estimated average cropped JPEG size for file-size prediction (bytes). */
+  EST_CROPPED_JPEG_SIZE: 50 * 1024,   // 50 KB
+  /** Estimated average original JPEG size for file-size prediction (bytes). */
+  EST_ORIG_JPEG_SIZE: 100 * 1024,     // 100 KB
+  /** Per-image JSON overhead in pool-meta.json + pool-stats.json (bytes). */
+  EST_PER_IMAGE_JSON: 400,
+};
+
 // Retry settings for auto-processor
 export const AUTO_CONFIG = {
   /** Delay before initial sequence kickoff (ms) */

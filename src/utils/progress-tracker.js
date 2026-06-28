@@ -177,6 +177,16 @@ function validateSchema(data) {
 }
 
 /**
+ * Force a full reload of progress data from storage.
+ * Used by import-export after writing directly to storage.
+ * @returns {Promise<void>}
+ */
+export async function reloadProgress() {
+  loaded = false;
+  await loadProgressTracker();
+}
+
+/**
  * Load progress history from storage.
  * Called once during boot; idempotent.
  */

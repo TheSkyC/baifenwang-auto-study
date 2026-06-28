@@ -2636,4 +2636,424 @@ export const STYLES = `
     background: rgba(249, 226, 175, 0.1);
     border-color: rgba(249, 226, 175, 0.3);
   }
+
+  /* ---- Data management row ---- */
+
+  .bfw-data-mgmt {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .bfw-data-btn {
+    flex: 1;
+    font-size: 11px;
+    padding: 6px 10px;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  /* ================================================================
+   * Import / Export modal — backup & restore ZIP dialog
+   * ================================================================ */
+
+  .bfw-ie-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483647;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: bfw-ie-fadein 0.2s ease;
+  }
+
+  @keyframes bfw-ie-fadein {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .bfw-ie-modal {
+    background: #1e1e2e;
+    border: 1px solid #313244;
+    border-radius: 12px;
+    width: 440px;
+    max-width: 95vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+    animation: bfw-ie-scalein 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    overflow: hidden;
+  }
+
+  @keyframes bfw-ie-scalein {
+    from { transform: scale(0.92); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+  }
+
+  /* ---- Header ---- */
+
+  .bfw-ie-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid #313244;
+    flex-shrink: 0;
+  }
+
+  .bfw-ie-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #cdd6f4;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .bfw-ie-title .bfw-icon {
+    color: #89b4fa;
+  }
+
+  .bfw-ie-close {
+    background: none;
+    border: none;
+    color: #585b70;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+    display: flex;
+    align-items: center;
+  }
+
+  .bfw-ie-close:hover {
+    color: #f38ba8;
+    background: rgba(243, 139, 168, 0.1);
+  }
+
+  /* ---- Body ---- */
+
+  .bfw-ie-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* ---- Summary / file info ---- */
+
+  .bfw-ie-summary {
+    background: #181825;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 12px;
+    color: #a6adc8;
+    line-height: 1.7;
+  }
+
+  .bfw-ie-summary .bfw-ie-file-icon {
+    color: #89b4fa;
+    margin-right: 6px;
+  }
+
+  .bfw-ie-summary-header {
+    font-weight: 600;
+    font-size: 13px;
+    color: #cdd6f4;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* ---- Section checkboxes ---- */
+
+  .bfw-ie-section {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #181825;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    padding: 10px 14px;
+    transition: border-color 0.15s;
+  }
+
+  .bfw-ie-section:hover {
+    border-color: #45475a;
+  }
+
+  .bfw-ie-section.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  /* File pick area — used for both click-to-browse and drag-and-drop */
+  .bfw-ie-file-pick {
+    border: 2px dashed #45475a;
+    border-radius: 10px;
+    transition: border-color 0.2s, background 0.2s;
+  }
+
+  .bfw-ie-file-pick.dragover {
+    border-color: #89b4fa;
+    background: rgba(137, 180, 250, 0.08);
+  }
+
+  .bfw-ie-section-check {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    accent-color: #89b4fa;
+    cursor: pointer;
+  }
+
+  .bfw-ie-section-icon {
+    flex-shrink: 0;
+    color: #6c7086;
+    display: flex;
+    align-items: center;
+  }
+
+  .bfw-ie-section-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .bfw-ie-section-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #cdd6f4;
+  }
+
+  .bfw-ie-section-detail {
+    font-size: 11px;
+    color: #6c7086;
+    margin-top: 1px;
+  }
+
+  .bfw-ie-section-size {
+    font-size: 11px;
+    color: #585b70;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  /* ---- Strategy selector (import only) ---- */
+
+  .bfw-ie-section-strategy {
+    flex-shrink: 0;
+    display: flex;
+    gap: 2px;
+  }
+
+  .bfw-ie-strategy-btn {
+    font-size: 10px;
+    padding: 3px 8px;
+    background: #313244;
+    border: 1px solid #45475a;
+    color: #6c7086;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    font-family: inherit;
+  }
+
+  .bfw-ie-strategy-btn:hover {
+    color: #a6adc8;
+    border-color: #585b70;
+  }
+
+  .bfw-ie-strategy-btn.active {
+    background: rgba(137, 180, 250, 0.15);
+    border-color: #89b4fa;
+    color: #89b4fa;
+  }
+
+  /* ---- Estimated size (export only) ---- */
+
+  .bfw-ie-estimate {
+    font-size: 12px;
+    color: #6c7086;
+    text-align: center;
+    padding: 4px 0;
+  }
+
+  .bfw-ie-estimate strong {
+    color: #a6adc8;
+  }
+
+  /* ---- Progress bar ---- */
+
+  .bfw-ie-progress {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .bfw-ie-progress.active {
+    display: flex;
+  }
+
+  .bfw-ie-progress-bar {
+    width: 100%;
+    height: 8px;
+    background: #313244;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .bfw-ie-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #89b4fa, #74c7ec);
+    border-radius: 4px;
+    width: 0%;
+    transition: width 0.3s ease;
+    position: relative;
+  }
+
+  .bfw-ie-progress-fill::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.15) 50%,
+      transparent 100%
+    );
+    animation: bfw-ie-shimmer 1.5s ease-in-out infinite;
+  }
+
+  @keyframes bfw-ie-shimmer {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  .bfw-ie-progress-text {
+    font-size: 11px;
+    color: #6c7086;
+    text-align: center;
+  }
+
+  /* ---- Error / warning banner ---- */
+
+  .bfw-ie-errors {
+    display: none;
+    background: rgba(243, 139, 168, 0.1);
+    border: 1px solid rgba(243, 139, 168, 0.3);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: #f38ba8;
+    line-height: 1.6;
+  }
+
+  .bfw-ie-errors.visible {
+    display: block;
+  }
+
+  .bfw-ie-errors-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* ---- Footer actions ---- */
+
+  .bfw-ie-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 18px;
+    border-top: 1px solid #313244;
+    flex-shrink: 0;
+  }
+
+  .bfw-ie-btn {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 18px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .bfw-ie-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .bfw-ie-btn-cancel {
+    background: #313244;
+    color: #a6adc8;
+  }
+
+  .bfw-ie-btn-cancel:hover:not(:disabled) {
+    background: #45475a;
+  }
+
+  .bfw-ie-btn-primary {
+    background: #89b4fa;
+    color: #1e1e2e;
+  }
+
+  .bfw-ie-btn-primary:hover:not(:disabled) {
+    background: #74c7ec;
+  }
+
+  .bfw-ie-btn-danger {
+    background: rgba(243, 139, 168, 0.15);
+    color: #f38ba8;
+  }
+
+  .bfw-ie-btn-danger:hover:not(:disabled) {
+    background: rgba(243, 139, 168, 0.25);
+  }
+
+  /* ---- Result summary (post-import) ---- */
+
+  .bfw-ie-result {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .bfw-ie-result.visible {
+    display: flex;
+  }
+
+  .bfw-ie-result-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    padding: 8px 12px;
+    background: #181825;
+    border-radius: 6px;
+  }
+
+  .bfw-ie-result-item.success { color: #a6e3a1; }
+  .bfw-ie-result-item.warn    { color: #f9e2af; }
+  .bfw-ie-result-item.error   { color: #f38ba8; }
+
+  .bfw-ie-result-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+  }
 `;

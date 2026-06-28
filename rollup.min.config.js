@@ -6,14 +6,19 @@ import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import terser from '@rollup/plugin-terser';
 import metablock from 'rollup-plugin-userscript-metablock';
+import prependJszip from './scripts/prepend-jszip-plugin.js';
 
 export default {
   input: 'src/index.js',
+  external: ['jszip'],
   output: {
     file: 'dist/baifenwang-auto-study.min.user.js',
     format: 'iife',
     name: 'BaifenwangAutoStudy',
     sourcemap: false,
+    globals: {
+      jszip: 'JSZip',
+    },
   },
   plugins: [
     resolve(),
@@ -45,5 +50,8 @@ export default {
         );
       },
     },
+
+    // Prepend JSZip UMD after the header (loaded at build time from CDN, already minified).
+    prependJszip(),
   ],
 };

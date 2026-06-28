@@ -7,7 +7,7 @@ import { findVideoElement, captureFrame, isFrameUseful } from '../utils/video-ca
 import { IMAGE_POOL_CONFIG, VIDEO_CAPTURE_SELECTORS } from '../config.js';
 import { getSetting, setSetting, onChange } from '../settings.js';
 import { icons } from './icons.js';
-import { refreshPoolUI, appendLog, setStatus, hideStatsPopup } from './builder.js';
+import { refreshPoolUI, appendLog, setStatus, hideStatsPopup, showExportModal, showImportModal, closeIEModal } from './builder.js';
 import { openFacePreview } from './face-preview.js';
 
 // ---------------------------------------------------------------------------
@@ -110,6 +110,31 @@ export function bindActions(panel) {
     clearBtn.addEventListener('click', () => {
       const logArea = panel.querySelector('#bfw-log-area');
       if (logArea) logArea.innerHTML = '';
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Import / Export button bindings
+// ---------------------------------------------------------------------------
+
+/**
+ * Bind import and export buttons in the data management section.
+ * @param {HTMLElement} panel
+ */
+export function bindImportExport(panel) {
+  const exportBtn = panel.querySelector('#bfw-btn-export-data');
+  const importBtn = panel.querySelector('#bfw-btn-import-data');
+
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+      showExportModal();
+    });
+  }
+
+  if (importBtn) {
+    importBtn.addEventListener('click', () => {
+      showImportModal(panel);
     });
   }
 }
