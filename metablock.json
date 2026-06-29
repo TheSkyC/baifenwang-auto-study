@@ -1,7 +1,7 @@
 {
   "name": "百分网自动刷课助手",
   "namespace": "https://greasyfork.org/baifenwang-auto-study",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "自动完成百分网人脸验证与课程播放，支持防切屏检测与人脸图片管理",
   "author": "TheSkyC",
   "license": "MIT",

@@ -4,6 +4,17 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.3.0] - 2026-06-29
+
+### 新增
+
+- **数据导入导出备份** — 面板新增「导出备份」与「导入备份」按钮，可将全部用户脚本数据（设置、学习进度、图片池）打包为 ZIP 文件并触发浏览器下载（`src/utils/import-export.js`）。导出端支持按数据类别分项选择、实时进度条、预计文件大小预览；图片以原始 JPEG 二进制存储（STORE 模式，无重压缩）。导入端支持点击或拖拽选择 `.zip` 备份文件，解析后展示备份信息摘要（版本、时间、各数据项数量），每类数据可选择「替换」或「合并」策略。学习进度合并时按会话 ID 自动去重、课程数据取最大值策略；图片池合并时为新图片分配新 ID 以避免冲突。构建系统通过 Rollup 插件（`scripts/prepend-jszip-plugin.js`）在构建时从 CDN 获取 JSZip v3.10.1 UMD 包并注入输出，消除 `@require` 与 `@grant none` 竞态。
+
+### 内部改进
+
+- **JSZip 构建注入**：双 Rollup 配置新增 `prependJszip` 插件，在 `==/UserScript==` 头后注入 JSZip 源码，标记 `jszip` 为外部依赖，构建时从 jsDelivr CDN 单次获取并缓存。跨 watch rebuild 复用缓存，避免重复网络请求。
+- **图片池与进度追踪器重载接口**：`image-pool.js` 新增 `reloadPool()` 导出、`progress-tracker.js` 新增 `reloadProgress()` 导出，供导入流程在直接写入存储后刷新内存状态。
+
 ## [1.2.0] - 2026-06-27
 
 ### 新增

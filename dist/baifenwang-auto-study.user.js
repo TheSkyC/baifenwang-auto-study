@@ -2,7 +2,7 @@
 // @name           百分网自动刷课助手
 // @description    自动完成百分网人脸验证与课程播放，支持防切屏检测与人脸图片管理
 // @namespace      https://greasyfork.org/baifenwang-auto-study
-// @version        1.2.0
+// @version        1.3.0
 // @author         TheSkyC
 // @license        MIT
 // @homepageURL    https://github.com/TheSkyC/baifenwang-auto-study
@@ -346,7 +346,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   // Script metadata
   const SCRIPT_NAME = '百分网自动刷课助手';
-  const SCRIPT_VERSION = '1.2.0';
+  const SCRIPT_VERSION = '1.3.0';
   const GITHUB_URL = 'https://github.com/TheSkyC/baifenwang-auto-study';
   const UPDATE_API_URL = 'https://baifenwang-auto-study.tarxf.com';
 

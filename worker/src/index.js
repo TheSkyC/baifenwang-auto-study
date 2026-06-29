@@ -25,12 +25,23 @@
 // Embedded release catalog — update on each release
 // ---------------------------------------------------------------------------
 
-const LATEST_VERSION = '1.2.0';
+const LATEST_VERSION = '1.3.0';
 const GITHUB_REPO = 'TheSkyC/baifenwang-auto-study';
 const DOWNLOAD_PATH = '/latest.user.js';
 
 /** @type {Record<string, object>} */
 const RELEASES = {
+  '1.3.0': {
+    version: '1.3.0',
+    publishedAt: '2026-06-29T00:00:00Z',
+    downloadUrl: `https://github.com/${GITHUB_REPO}/releases/download/v1.3.0/baifenwang-auto-study.user.js`,
+    changelog: [
+      { type: 'feat', title: '数据导出与导入恢复', description: '全部数据一键导出为ZIP备份，支持分项恢复与合并导入' },
+    ],
+    source: {
+      releaseUrl: `https://github.com/${GITHUB_REPO}/releases/tag/v1.3.0`,
+    },
+  },
   '1.2.0': {
     version: '1.2.0',
     publishedAt: '2026-06-27T00:00:00Z',
