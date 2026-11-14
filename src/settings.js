@@ -27,8 +27,14 @@ const DEFAULTS = {
   // ---- Auto-course (自动刷课) ----
   /** Enable auto-course processor — auto-plays course videos and monitors progress */
   autoCourse: false,
+  /** Maximum number of lessons (videos) to auto-study per day (0 = unlimited) */
+  dailyLessonLimit: 0,
+  /** Remaining lessons to auto-study before stopping (persisted across reloads/reboots) */
+  lessonLimitRemaining: 0,
   /** Prevent the site from detecting tab-switch / window minimization */
   disableVisibilityCheck: false,
+  /** Mute course video playback constantly across auto/manual video switches */
+  muteVideo: false,
 
   // ---- Image pool ----
   /** Enable weighted random selection based on per-image quality stats */
@@ -74,7 +80,7 @@ export async function loadSettings() {
   }
 
   loaded = true;
-  info(`Settings ready: faceAutoClick=${state.faceAutoClick}, videoReplace=${state.videoReplace}, autoCompare=${state.autoCompare}, autoCourse=${state.autoCourse}, disableVisibilityCheck=${state.disableVisibilityCheck}, dynamicWeight=${state.dynamicWeight}`);
+  info(`Settings ready: faceAutoClick=${state.faceAutoClick}, videoReplace=${state.videoReplace}, autoCompare=${state.autoCompare}, autoCourse=${state.autoCourse}, dailyLessonLimit=${state.dailyLessonLimit}, disableVisibilityCheck=${state.disableVisibilityCheck}, muteVideo=${state.muteVideo}, dynamicWeight=${state.dynamicWeight}`);
 }
 
 /**
@@ -139,6 +145,7 @@ export function setSetting(key, value) {
   const old = state[key];
   if (old === value) return;
   state[key] = value;
+  loaded = true;
 
   // Fire-and-forget persistence — never block the UI
   saveSettings();
@@ -169,4 +176,12 @@ export function onChange(key, fn) {
  */
 export function isFaceAutoActive() {
   return state.faceAutoClick;
+}
+
+/**
+ * Check whether mute video is enabled.
+ * @returns {boolean}
+ */
+export function isMuteVideoActive() {
+  return getSetting('muteVideo', false);
 }

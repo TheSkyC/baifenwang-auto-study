@@ -10,6 +10,7 @@ import { loadProgressTracker, flushSessionSync } from './utils/progress-tracker.
 import { installVideoInterceptor } from './core/video-interceptor.js';
 import { initVideoOverlay } from './ui/video-overlay.js';
 import { installVisibilityInterceptor, initVisibilityInterceptorSettings } from './core/visibility-interceptor.js';
+import { installAudioInterceptor, initAudioInterceptorSettings } from './core/audio-interceptor.js';
 import { buildUI, appendLog, setStatus } from './ui/builder.js';
 import { startAutoProcessor } from './auto/processor.js';
 import './auto/course-processor.js';    // side-effect: registers settings listener
@@ -40,6 +41,10 @@ function bootstrap() {
 
   try { installVisibilityInterceptor(); } catch (e) {
     error('Visibility interceptor install failed:', e);
+  }
+
+  try { installAudioInterceptor(); } catch (e) {
+    error('Audio interceptor install failed:', e);
   }
 
   // ---- Phase 2: DOM-dependent components (deferred to ready) ----
@@ -76,6 +81,13 @@ function bootstrap() {
       debug('Visibility interceptor init failed:', e);
     }
 
+    // 2a3. Audio interceptor — must run after settings load
+    try {
+      initAudioInterceptorSettings();
+    } catch (e) {
+      debug('Audio interceptor init failed:', e);
+    }
+
     // 2b. Image pool
     try {
       await initPool();
@@ -87,8 +99,10 @@ function bootstrap() {
     }
 
     // 2c. Build UI panel (must succeed — otherwise we can't show any feedback)
+
     try {
       buildUI();
+
       uiReady = true;
       appendLog('UI面板已挂载');
     } catch (e) {

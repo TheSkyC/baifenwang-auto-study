@@ -16,7 +16,8 @@ import { bindDrawer, bindActions, bindPoolEvents, bindSettings, bindImportExport
 import { listEntries, poolSize, poolCapacity, getImageData, getImageStats, getImageQualityTier } from '../pool/image-pool.js';
 import { openCropEditor } from './crop-editor.js';
 import { createStatsSection, bindStatsEvents, refreshStats } from './progress-stats.js';
-import { clearAllProgress } from '../utils/progress-tracker.js';
+import { clearAllProgress, getTodayCompletedLessons } from '../utils/progress-tracker.js';
+import { getSetting } from '../settings.js';
 import { checkPageVersion } from '../utils/version-checker.js';
 import { checkForUpdate, invalidateUpdateCache, ignoreVersion, clearIgnoredVersion } from '../utils/update-checker.js';
 import { estimateExportSize, formatSize, buildBackupBlob, parseBackupFile, buildSummary, executeImport } from '../utils/import-export.js';
@@ -153,7 +154,7 @@ export function refreshCourseProgress() {
     setTextIfChanged(vidPctEl, d.currentName ? `视频 ${d.videoProgress || 0}%` : '');
   }
 
-  // ---- Stat line ----
+  // ---- Overall course stat line ----
   const statEl = panelEl.querySelector('#bfw-course-stat');
   if (statEl) {
     const parts = [];
@@ -162,10 +163,28 @@ export function refreshCourseProgress() {
     parts.push(`${d.completedLessons}/${d.totalLessons} 课`);
     if (d.remainingMinutes > 0) {
       parts.push(d.remainingMinutes >= 60
-        ? `剩余约 ${Math.round(d.remainingMinutes / 60)}h`
-        : `剩余约 ${d.remainingMinutes}min`);
+        ? `全课剩余约 ${Math.round(d.remainingMinutes / 60)}h`
+        : `全课剩余约 ${d.remainingMinutes}min`);
     }
     setTextIfChanged(statEl, parts.join(' · '));
+  }
+
+  // ---- Today progress & goal stat line (second line) ----
+  const todayStatEl = panelEl.querySelector('#bfw-course-today-stat');
+  if (todayStatEl) {
+    const todayLessons = getTodayCompletedLessons();
+    const limit = getSetting('dailyLessonLimit', 0);
+    const todayParts = [];
+    if (limit > 0) {
+      const remaining = getSetting('lessonLimitRemaining', limit);
+      todayParts.push(`今日: ${todayLessons} 个视频`);
+      todayParts.push(`目标还剩: ${remaining}`);
+    } else if (todayLessons > 0) {
+      todayParts.push(`今日: ${todayLessons} 个视频`);
+    }
+    const todayText = todayParts.join(' · ');
+    setTextIfChanged(todayStatEl, todayText);
+    setStyleIfChanged(todayStatEl, 'display', todayText ? 'block' : 'none');
   }
 }
 
@@ -927,6 +946,18 @@ function createPanelDOM() {
             </label>
           </div>
 
+          <div class="bfw-setting-row" data-setting="dailyLessonLimit">
+            <div class="bfw-setting-info">
+              <span class="bfw-setting-icon">${icons.clock}</span>
+              <span class="bfw-setting-label">每日播放限制</span>
+              <span class="bfw-setting-desc">播放完设定视频数后自动暂停（0为不限制）</span>
+            </div>
+            <div class="bfw-limit-input-wrap">
+              <input type="number" class="bfw-limit-input" id="bfw-input-daily-lesson-limit" min="0" max="999" value="0" />
+              <span class="bfw-limit-unit">个视频</span>
+            </div>
+          </div>
+
           <div class="bfw-setting-row" data-setting="disableVisibilityCheck">
             <div class="bfw-setting-info">
               <span class="bfw-setting-icon">${icons.monitor}</span>
@@ -935,6 +966,18 @@ function createPanelDOM() {
             </div>
             <label class="bfw-toggle">
               <input type="checkbox" class="bfw-toggle-input" id="bfw-toggle-disable-visibility-check" />
+              <span class="bfw-toggle-slider"></span>
+            </label>
+          </div>
+
+          <div class="bfw-setting-row" data-setting="muteVideo">
+            <div class="bfw-setting-info">
+              <span class="bfw-setting-icon">${icons.volumeX}</span>
+              <span class="bfw-setting-label">静音播放视频</span>
+              <span class="bfw-setting-desc">切换课程或刷新后始终保持视频静音播放</span>
+            </div>
+            <label class="bfw-toggle">
+              <input type="checkbox" class="bfw-toggle-input" id="bfw-toggle-mute-video" />
               <span class="bfw-toggle-slider"></span>
             </label>
           </div>
@@ -971,6 +1014,7 @@ function createPanelDOM() {
             </div>
           </div>
           <div class="bfw-course-stat" id="bfw-course-stat"></div>
+          <div class="bfw-course-today-stat" id="bfw-course-today-stat"></div>
         </div>
 
         <!-- Progress Stats Section (inserted by createStatsSection) -->

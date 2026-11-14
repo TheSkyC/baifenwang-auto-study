@@ -168,6 +168,11 @@ function validateSchema(data) {
     }
   }
 
+  // Validate dailyLessons
+  if (!data.dailyLessons || typeof data.dailyLessons !== 'object' || Array.isArray(data.dailyLessons)) {
+    data.dailyLessons = {};
+  }
+
   // Validate lastSync
   if (typeof data.lastSync !== 'number') {
     data.lastSync = Date.now();
@@ -526,6 +531,52 @@ export function getTodayStats() {
 }
 
 /**
+ * Get the number of lessons (videos) completed today.
+ * @returns {number}
+ */
+export function getTodayCompletedLessons() {
+  const today = formatDate(Date.now());
+  const storedCount = (progressData.dailyLessons && typeof progressData.dailyLessons === 'object')
+    ? (progressData.dailyLessons[today] || 0)
+    : 0;
+
+  const todayStats = getTodayStats();
+  return Math.max(storedCount, todayStats.lessonsCompleted);
+}
+
+/**
+ * Record one completed lesson (video) today.
+ * Deduplicates by lessonKey so replaying the same lesson does not increment the count.
+ * @param {string} [lessonKey]
+ * @returns {{ count: number, isNew: boolean }}
+ */
+export function recordCompletedLesson(lessonKey) {
+  const today = formatDate(Date.now());
+  if (!progressData.dailyLessons || typeof progressData.dailyLessons !== 'object') {
+    progressData.dailyLessons = {};
+  }
+  if (!progressData.completedLessonKeys || typeof progressData.completedLessonKeys !== 'object') {
+    progressData.completedLessonKeys = {};
+  }
+  if (!Array.isArray(progressData.completedLessonKeys[today])) {
+    progressData.completedLessonKeys[today] = [];
+  }
+
+  if (lessonKey) {
+    if (progressData.completedLessonKeys[today].includes(lessonKey)) {
+      debug(`ProgressTracker: lesson "${lessonKey}" already completed today, ignoring duplicate`);
+      return { count: getTodayCompletedLessons(), isNew: false };
+    }
+    progressData.completedLessonKeys[today].push(lessonKey);
+  }
+
+  const current = getTodayCompletedLessons();
+  progressData.dailyLessons[today] = current + 1;
+  saveProgressData().catch(e => warn('ProgressTracker: failed to persist daily lessons:', e));
+  return { count: progressData.dailyLessons[today], isNew: true };
+}
+
+/**
  * Get this week's statistics (last 7 days).
  * @returns {{ sessionsCount: number, totalDuration: number, lessonsCompleted: number, daysActive: number }}
  */
@@ -702,6 +753,7 @@ export async function clearAllProgress() {
     version: SCHEMA_VERSION,
     sessions: [],
     courses: {},
+    dailyLessons: {},
     lastSync: Date.now(),
   };
   currentSession = null;
