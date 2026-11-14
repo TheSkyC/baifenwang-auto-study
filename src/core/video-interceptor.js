@@ -51,6 +51,65 @@ let _activeStreamCount = 0;
 /** Whether at least one fake video stream is currently active. */
 let _fakeStreamActive = false;
 
+/** Set of active real camera MediaStream instances that need hardware cleanup. */
+const activeRealStreams = new Set();
+
+/** Whether real camera bypass mode is temporarily active (overrides videoReplace). */
+let _realCameraMode = false;
+
+/**
+ * Register a real camera stream for lifecycle tracking and cleanup.
+ * @param {MediaStream} stream
+ */
+export function trackRealStream(stream) {
+  if (!(stream instanceof MediaStream)) return;
+  activeRealStreams.add(stream);
+  for (const track of stream.getTracks()) {
+    track.addEventListener('ended', () => {
+      if (stream.getTracks().every(t => t.readyState === 'ended')) {
+        activeRealStreams.delete(stream);
+      }
+    }, { once: true });
+  }
+}
+
+/**
+ * Stop all active real camera streams and turn off hardware camera indicators.
+ */
+export function stopAllRealStreams() {
+  for (const stream of activeRealStreams) {
+    try {
+      for (const track of stream.getTracks()) {
+        if (track.readyState !== 'ended') {
+          track.stop();
+        }
+      }
+    } catch (_) {}
+  }
+  activeRealStreams.clear();
+  _realCameraMode = false;
+  debug('Video interceptor: stopped all real camera streams');
+}
+
+/**
+ * Check whether real camera bypass mode is active.
+ * @returns {boolean}
+ */
+export function isRealCameraMode() {
+  return _realCameraMode;
+}
+
+/**
+ * Set real camera bypass mode.
+ * @param {boolean} active
+ */
+export function setRealCameraMode(active) {
+  _realCameraMode = !!active;
+  if (!active) {
+    stopAllRealStreams();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -363,10 +422,14 @@ export function installVideoInterceptor() {
   originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
 
   navigator.mediaDevices.getUserMedia = async function interceptedGetUserMedia(constraints) {
-    // Check settings — skip interception if video replacement is disabled
-    if (!getSetting('videoReplace', true)) {
-      debug('Video interceptor: disabled — passing through to real camera');
-      return originalGetUserMedia(constraints);
+    // Check settings — skip interception if video replacement is disabled or real camera bypass is active
+    if (!getSetting('videoReplace', true) || _realCameraMode) {
+      debug(`Video interceptor: ${_realCameraMode ? 'real camera active' : 'disabled'} — passing through to real camera`);
+      const stream = await originalGetUserMedia(constraints);
+      if (_realCameraMode) {
+        trackRealStream(stream);
+      }
+      return stream;
     }
 
     // Only intercept video requests
@@ -464,6 +527,8 @@ export async function switchToRealCamera(fakeStream, constraints) {
 
   // Acquire the real stream FIRST — if this throws, the fake stream survives
   const realStream = await originalGetUserMedia(constraints);
+  trackRealStream(realStream);
+  _realCameraMode = true;
 
   // Now that we have the real stream, stop the fake one.
   // The 'ended' listener handles canvas cleanup, WeakMap deletion,
@@ -485,12 +550,16 @@ export async function switchToRealCamera(fakeStream, constraints) {
  * @returns {Promise<MediaStream>} A new fake MediaStream
  */
 export async function switchToFakeCamera(realStream, constraints) {
+  _realCameraMode = false;
+
   // Stop real stream tracks if provided
   if (realStream) {
     for (const track of realStream.getTracks()) {
       track.stop();
     }
+    activeRealStreams.delete(realStream);
   }
+  stopAllRealStreams();
 
   return createFakeStream(constraints, originalGetUserMedia);
 }

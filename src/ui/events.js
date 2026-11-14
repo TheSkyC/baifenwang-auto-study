@@ -9,6 +9,7 @@ import { getSetting, setSetting, onChange } from '../settings.js';
 import { icons } from './icons.js';
 import { refreshPoolUI, appendLog, setStatus, hideStatsPopup, showExportModal, showImportModal, closeIEModal } from './builder.js';
 import { openFacePreview } from './face-preview.js';
+import { requestNotificationPermission } from '../utils/notification.js';
 
 // ---------------------------------------------------------------------------
 // Edge-drawer behaviour — hover to reveal, pin to lock
@@ -156,6 +157,7 @@ export function bindSettings(panel) {
     { inputId: 'bfw-toggle-auto-compare', key: 'autoCompare' },
     { inputId: 'bfw-toggle-auto-course', key: 'autoCourse' },
     { inputId: 'bfw-toggle-disable-visibility-check', key: 'disableVisibilityCheck' },
+    { inputId: 'bfw-toggle-mute-video', key: 'muteVideo' },
   ];
 
   for (const { inputId, key } of bindings) {
@@ -181,6 +183,25 @@ export function bindSettings(panel) {
   // Initial UI state sync
   for (const { key } of bindings) {
     updateSettingUI(panel, key, getSetting(key, false));
+  }
+
+  // ---- Daily lesson limit input ----
+  const limitInput = panel.querySelector('#bfw-input-daily-lesson-limit');
+  if (limitInput) {
+    limitInput.value = getSetting('dailyLessonLimit', 0);
+    limitInput.addEventListener('change', () => {
+      let val = parseInt(limitInput.value, 10);
+      if (isNaN(val) || val < 0) val = 0;
+      limitInput.value = val;
+      setSetting('dailyLessonLimit', val);
+      setSetting('lessonLimitRemaining', val);
+      if (val > 0) {
+        requestNotificationPermission();
+      }
+    });
+    onChange('dailyLessonLimit', (val) => {
+      limitInput.value = val;
+    });
   }
 
   // ---- Dynamic weight setting sync (button, not checkbox) ----

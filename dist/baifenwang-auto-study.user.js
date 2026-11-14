@@ -394,7 +394,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     /** Delay after clicking "open camera" before trying the photo button (ms) */
     CAMERA_OPEN_DELAY_MS: 1500,
     /** Delay after clicking "take photo" before trying the compare button (ms) */
-    PHOTO_DELAY_MS: 1000,
+    PHOTO_DELAY_MS: 1200,
     /** Max retries when compare button is not yet in the DOM */
     MAX_COMPARE_RETRIES: 5,
     /** Retry interval for compare button polling (ms) */
@@ -679,8 +679,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     // ---- Auto-course (自动刷课) ----
     /** Enable auto-course processor — auto-plays course videos and monitors progress */
     autoCourse: false,
+    /** Maximum number of lessons (videos) to auto-study per day (0 = unlimited) */
+    dailyLessonLimit: 0,
+    /** Remaining lessons to auto-study before stopping (persisted across reloads/reboots) */
+    lessonLimitRemaining: 0,
     /** Prevent the site from detecting tab-switch / window minimization */
     disableVisibilityCheck: false,
+    /** Mute course video playback constantly across auto/manual video switches */
+    muteVideo: false,
 
     // ---- Image pool ----
     /** Enable weighted random selection based on per-image quality stats */
@@ -726,7 +732,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
 
     loaded$1 = true;
-    info(`Settings ready: faceAutoClick=${state.faceAutoClick}, videoReplace=${state.videoReplace}, autoCompare=${state.autoCompare}, autoCourse=${state.autoCourse}, disableVisibilityCheck=${state.disableVisibilityCheck}, dynamicWeight=${state.dynamicWeight}`);
+    info(`Settings ready: faceAutoClick=${state.faceAutoClick}, videoReplace=${state.videoReplace}, autoCompare=${state.autoCompare}, autoCourse=${state.autoCourse}, dailyLessonLimit=${state.dailyLessonLimit}, disableVisibilityCheck=${state.disableVisibilityCheck}, muteVideo=${state.muteVideo}, dynamicWeight=${state.dynamicWeight}`);
   }
 
   /**
@@ -791,6 +797,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const old = state[key];
     if (old === value) return;
     state[key] = value;
+    loaded$1 = true;
 
     // Fire-and-forget persistence — never block the UI
     saveSettings();
@@ -988,6 +995,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         if (typeof course.firstStudy !== 'number') course.firstStudy = Date.now();
         if (!Array.isArray(course.sessions)) course.sessions = [];
       }
+    }
+
+    // Validate dailyLessons
+    if (!data.dailyLessons || typeof data.dailyLessons !== 'object' || Array.isArray(data.dailyLessons)) {
+      data.dailyLessons = {};
     }
 
     // Validate lastSync
@@ -1347,6 +1359,52 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
 
   /**
+   * Get the number of lessons (videos) completed today.
+   * @returns {number}
+   */
+  function getTodayCompletedLessons() {
+    const today = formatDate(Date.now());
+    const storedCount = (progressData.dailyLessons && typeof progressData.dailyLessons === 'object')
+      ? (progressData.dailyLessons[today] || 0)
+      : 0;
+
+    const todayStats = getTodayStats();
+    return Math.max(storedCount, todayStats.lessonsCompleted);
+  }
+
+  /**
+   * Record one completed lesson (video) today.
+   * Deduplicates by lessonKey so replaying the same lesson does not increment the count.
+   * @param {string} [lessonKey]
+   * @returns {{ count: number, isNew: boolean }}
+   */
+  function recordCompletedLesson(lessonKey) {
+    const today = formatDate(Date.now());
+    if (!progressData.dailyLessons || typeof progressData.dailyLessons !== 'object') {
+      progressData.dailyLessons = {};
+    }
+    if (!progressData.completedLessonKeys || typeof progressData.completedLessonKeys !== 'object') {
+      progressData.completedLessonKeys = {};
+    }
+    if (!Array.isArray(progressData.completedLessonKeys[today])) {
+      progressData.completedLessonKeys[today] = [];
+    }
+
+    if (lessonKey) {
+      if (progressData.completedLessonKeys[today].includes(lessonKey)) {
+        debug(`ProgressTracker: lesson "${lessonKey}" already completed today, ignoring duplicate`);
+        return { count: getTodayCompletedLessons(), isNew: false };
+      }
+      progressData.completedLessonKeys[today].push(lessonKey);
+    }
+
+    const current = getTodayCompletedLessons();
+    progressData.dailyLessons[today] = current + 1;
+    saveProgressData().catch(e => warn('ProgressTracker: failed to persist daily lessons:', e));
+    return { count: progressData.dailyLessons[today], isNew: true };
+  }
+
+  /**
    * Get this week's statistics (last 7 days).
    * @returns {{ sessionsCount: number, totalDuration: number, lessonsCompleted: number, daysActive: number }}
    */
@@ -1495,6 +1553,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       version: SCHEMA_VERSION,
       sessions: [],
       courses: {},
+      dailyLessons: {},
       lastSync: Date.now(),
     };
     currentSession = null;
@@ -4264,6 +4323,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   .bfw-course-stat {
     font-size: 10px;
     color: #6c7086;
+    line-height: 1.4;
+  }
+  .bfw-course-today-stat {
+    font-size: 10px;
+    color: #89b4fa;
+    line-height: 1.4;
+    margin-top: 3px;
   }
 
   /* ================================================================
@@ -4370,6 +4436,36 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     color: #585b70;
     flex-basis: 100%;
     margin-left: 22px; /* indent under icon */
+  }
+
+  .bfw-limit-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .bfw-limit-input {
+    width: 48px;
+    padding: 3px 6px;
+    background: #11111b;
+    border: 1px solid #45475a;
+    border-radius: 4px;
+    color: #cdd6f4;
+    font-size: 12px;
+    text-align: center;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
+  }
+
+  .bfw-limit-input:focus {
+    border-color: #89b4fa;
+  }
+
+  .bfw-limit-unit {
+    font-size: 11px;
+    color: #6c7086;
   }
 
   /* ================================================================
@@ -6561,6 +6657,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     video:
       svgIcon('<path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>'),
 
+    /** Volume-x — mute audio */
+    volumeX:
+      svgIcon('<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>'),
+
     /** Check-circle — auto-compare confirmation */
     checkCircle:
       svgIcon('<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>'),
@@ -7670,6 +7770,157 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
 
   /**
+   * @file System notification helper — Windows toast notifications and browser alerts.
+   * @author PhoebeCLS
+   */
+
+
+  let _titleAlertTimer = null;
+  let _originalTitle = '';
+
+  /**
+   * Request permission for web notifications if not already determined.
+   */
+  function requestNotificationPermission() {
+    const NotificationAPI = (typeof window !== 'undefined' && window.Notification) || (typeof Notification !== 'undefined' ? Notification : null);
+    if (NotificationAPI && NotificationAPI.permission === 'default' && typeof NotificationAPI.requestPermission === 'function') {
+      NotificationAPI.requestPermission().catch(() => {});
+    }
+  }
+
+  /**
+   * Play a gentle double-chime using Web Audio API.
+   */
+  function playChime() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(523.25, now);
+      gain1.gain.setValueAtTime(0.15, now);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.25);
+
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(659.25, now + 0.15);
+      gain2.gain.setValueAtTime(0.18, now + 0.15);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.15);
+      osc2.stop(now + 0.45);
+
+      setTimeout(() => {
+        try { ctx.close().catch(() => {}); } catch (_) {}
+      }, 800);
+    } catch (_) {}
+  }
+
+  /**
+   * Stop tab title flashing and restore original document title.
+   */
+  function stopTitleAlert() {
+    if (_titleAlertTimer) {
+      clearInterval(_titleAlertTimer);
+      _titleAlertTimer = null;
+      if (typeof document !== 'undefined' && _originalTitle) {
+        document.title = _originalTitle;
+      }
+    }
+  }
+
+  /**
+   * Start tab title flashing to alert user when window is inactive.
+   * @param {string} alertText
+   */
+  function startTitleAlert(alertText) {
+    if (typeof document === 'undefined') return;
+    if (_titleAlertTimer) return;
+
+    _originalTitle = document.title;
+    let toggle = false;
+
+    _titleAlertTimer = setInterval(() => {
+      document.title = toggle ? alertText : _originalTitle;
+      toggle = !toggle;
+    }, 1000);
+    if (typeof _titleAlertTimer?.unref === 'function') {
+      _titleAlertTimer.unref();
+    }
+
+    const stop = () => {
+      stopTitleAlert();
+      if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('focus', stop);
+      }
+    };
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('focus', stop);
+    }
+  }
+
+  /**
+   * Send a Windows system notification (via GM_notification or Web Notification API).
+   * Text strings are explicitly normalized to NFC Unicode to prevent Chinese character corruption.
+   *
+   * @param {string} title
+   * @param {string} body
+   * @returns {boolean}
+   */
+  function sendWindowsNotification(title, body) {
+    const safeTitle = String(title).normalize('NFC');
+    const safeBody = String(body || '').normalize('NFC');
+
+    info(`Notification: sending system notification — "${safeTitle}: ${safeBody}"`);
+
+    playChime();
+    startTitleAlert(`【已暂停】${safeBody}`);
+
+    if (typeof GM_notification === 'function') {
+      try {
+        GM_notification({
+          title: safeTitle,
+          text: safeBody,
+          timeout: 12000,
+        });
+        return true;
+      } catch (e) {
+        debug('Notification: GM_notification failed, falling back:', e);
+      }
+    }
+
+    const NotificationAPI = (typeof window !== 'undefined' && window.Notification) || (typeof Notification !== 'undefined' ? Notification : null);
+    if (NotificationAPI) {
+      if (NotificationAPI.permission === 'granted') {
+        try {
+          new NotificationAPI(safeTitle, { body: safeBody });
+          return true;
+        } catch (e) {
+          debug('Notification: Web Notification failed:', e);
+        }
+      } else if (NotificationAPI.permission !== 'denied' && typeof NotificationAPI.requestPermission === 'function') {
+        NotificationAPI.requestPermission().then((perm) => {
+          if (perm === 'granted') {
+            new NotificationAPI(safeTitle, { body: safeBody });
+          }
+        }).catch(() => {});
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * @file UI event handlers — edge-drawer hover/pin, action buttons, image pool interactions.
    */
 
@@ -7820,6 +8071,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       { inputId: 'bfw-toggle-auto-compare', key: 'autoCompare' },
       { inputId: 'bfw-toggle-auto-course', key: 'autoCourse' },
       { inputId: 'bfw-toggle-disable-visibility-check', key: 'disableVisibilityCheck' },
+      { inputId: 'bfw-toggle-mute-video', key: 'muteVideo' },
     ];
 
     for (const { inputId, key } of bindings) {
@@ -7845,6 +8097,25 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     // Initial UI state sync
     for (const { key } of bindings) {
       updateSettingUI(panel, key, getSetting(key, false));
+    }
+
+    // ---- Daily lesson limit input ----
+    const limitInput = panel.querySelector('#bfw-input-daily-lesson-limit');
+    if (limitInput) {
+      limitInput.value = getSetting('dailyLessonLimit', 0);
+      limitInput.addEventListener('change', () => {
+        let val = parseInt(limitInput.value, 10);
+        if (isNaN(val) || val < 0) val = 0;
+        limitInput.value = val;
+        setSetting('dailyLessonLimit', val);
+        setSetting('lessonLimitRemaining', val);
+        if (val > 0) {
+          requestNotificationPermission();
+        }
+      });
+      onChange('dailyLessonLimit', (val) => {
+        limitInput.value = val;
+      });
     }
 
     // ---- Dynamic weight setting sync (button, not checkbox) ----
@@ -9298,6 +9569,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
    */
   const COMPATIBILITY_MAP = {
     '1.0.20': 'tested',
+    '1.0.21': 'tested',
     // Add more as you test new versions
   };
 
@@ -10474,7 +10746,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       setTextIfChanged(vidPctEl, d.currentName ? `视频 ${d.videoProgress || 0}%` : '');
     }
 
-    // ---- Stat line ----
+    // ---- Overall course stat line ----
     const statEl = panelEl.querySelector('#bfw-course-stat');
     if (statEl) {
       const parts = [];
@@ -10483,10 +10755,28 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       parts.push(`${d.completedLessons}/${d.totalLessons} 课`);
       if (d.remainingMinutes > 0) {
         parts.push(d.remainingMinutes >= 60
-          ? `剩余约 ${Math.round(d.remainingMinutes / 60)}h`
-          : `剩余约 ${d.remainingMinutes}min`);
+          ? `全课剩余约 ${Math.round(d.remainingMinutes / 60)}h`
+          : `全课剩余约 ${d.remainingMinutes}min`);
       }
       setTextIfChanged(statEl, parts.join(' · '));
+    }
+
+    // ---- Today progress & goal stat line (second line) ----
+    const todayStatEl = panelEl.querySelector('#bfw-course-today-stat');
+    if (todayStatEl) {
+      const todayLessons = getTodayCompletedLessons();
+      const limit = getSetting('dailyLessonLimit', 0);
+      const todayParts = [];
+      if (limit > 0) {
+        const remaining = getSetting('lessonLimitRemaining', limit);
+        todayParts.push(`今日: ${todayLessons} 个视频`);
+        todayParts.push(`目标还剩: ${remaining}`);
+      } else if (todayLessons > 0) {
+        todayParts.push(`今日: ${todayLessons} 个视频`);
+      }
+      const todayText = todayParts.join(' · ');
+      setTextIfChanged(todayStatEl, todayText);
+      setStyleIfChanged(todayStatEl, 'display', todayText ? 'block' : 'none');
     }
   }
 
@@ -11244,6 +11534,18 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             </label>
           </div>
 
+          <div class="bfw-setting-row" data-setting="dailyLessonLimit">
+            <div class="bfw-setting-info">
+              <span class="bfw-setting-icon">${icons.clock}</span>
+              <span class="bfw-setting-label">每日播放限制</span>
+              <span class="bfw-setting-desc">播放完设定视频数后自动暂停（0为不限制）</span>
+            </div>
+            <div class="bfw-limit-input-wrap">
+              <input type="number" class="bfw-limit-input" id="bfw-input-daily-lesson-limit" min="0" max="999" value="0" />
+              <span class="bfw-limit-unit">个视频</span>
+            </div>
+          </div>
+
           <div class="bfw-setting-row" data-setting="disableVisibilityCheck">
             <div class="bfw-setting-info">
               <span class="bfw-setting-icon">${icons.monitor}</span>
@@ -11252,6 +11554,18 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             </div>
             <label class="bfw-toggle">
               <input type="checkbox" class="bfw-toggle-input" id="bfw-toggle-disable-visibility-check" />
+              <span class="bfw-toggle-slider"></span>
+            </label>
+          </div>
+
+          <div class="bfw-setting-row" data-setting="muteVideo">
+            <div class="bfw-setting-info">
+              <span class="bfw-setting-icon">${icons.volumeX}</span>
+              <span class="bfw-setting-label">静音播放视频</span>
+              <span class="bfw-setting-desc">切换课程或刷新后始终保持视频静音播放</span>
+            </div>
+            <label class="bfw-toggle">
+              <input type="checkbox" class="bfw-toggle-input" id="bfw-toggle-mute-video" />
               <span class="bfw-toggle-slider"></span>
             </label>
           </div>
@@ -11288,6 +11602,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             </div>
           </div>
           <div class="bfw-course-stat" id="bfw-course-stat"></div>
+          <div class="bfw-course-today-stat" id="bfw-course-today-stat"></div>
         </div>
 
         <!-- Progress Stats Section (inserted by createStatsSection) -->
@@ -11983,7 +12298,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   let originalGetUserMedia = null;
 
   /** Whether the interceptor has been installed. */
-  let installed$1 = false;
+  let installed$2 = false;
 
   // ---------------------------------------------------------------------------
   // Active stream state — cleaned up when tracks end
@@ -12013,6 +12328,46 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   /** Whether at least one fake video stream is currently active. */
   let _fakeStreamActive = false;
+
+  /** Set of active real camera MediaStream instances that need hardware cleanup. */
+  const activeRealStreams = new Set();
+
+  /** Whether real camera bypass mode is temporarily active (overrides videoReplace). */
+  let _realCameraMode = false;
+
+  /**
+   * Register a real camera stream for lifecycle tracking and cleanup.
+   * @param {MediaStream} stream
+   */
+  function trackRealStream(stream) {
+    if (!(stream instanceof MediaStream)) return;
+    activeRealStreams.add(stream);
+    for (const track of stream.getTracks()) {
+      track.addEventListener('ended', () => {
+        if (stream.getTracks().every(t => t.readyState === 'ended')) {
+          activeRealStreams.delete(stream);
+        }
+      }, { once: true });
+    }
+  }
+
+  /**
+   * Stop all active real camera streams and turn off hardware camera indicators.
+   */
+  function stopAllRealStreams() {
+    for (const stream of activeRealStreams) {
+      try {
+        for (const track of stream.getTracks()) {
+          if (track.readyState !== 'ended') {
+            track.stop();
+          }
+        }
+      } catch (_) {}
+    }
+    activeRealStreams.clear();
+    _realCameraMode = false;
+    debug('Video interceptor: stopped all real camera streams');
+  }
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -12313,7 +12668,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
    * fake stream instead of the real camera feed.
    */
   function installVideoInterceptor() {
-    if (installed$1) {
+    if (installed$2) {
       warn('Video interceptor already installed');
       return;
     }
@@ -12326,10 +12681,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
 
     navigator.mediaDevices.getUserMedia = async function interceptedGetUserMedia(constraints) {
-      // Check settings — skip interception if video replacement is disabled
-      if (!getSetting('videoReplace', true)) {
-        debug('Video interceptor: disabled — passing through to real camera');
-        return originalGetUserMedia(constraints);
+      // Check settings — skip interception if video replacement is disabled or real camera bypass is active
+      if (!getSetting('videoReplace', true) || _realCameraMode) {
+        debug(`Video interceptor: ${_realCameraMode ? 'real camera active' : 'disabled'} — passing through to real camera`);
+        const stream = await originalGetUserMedia(constraints);
+        if (_realCameraMode) {
+          trackRealStream(stream);
+        }
+        return stream;
       }
 
       // Only intercept video requests
@@ -12351,7 +12710,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       }
     };
 
-    installed$1 = true;
+    installed$2 = true;
     info('Video interceptor installed (getUserMedia monkey-patch)');
   }
 
@@ -12417,6 +12776,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
     // Acquire the real stream FIRST — if this throws, the fake stream survives
     const realStream = await originalGetUserMedia(constraints);
+    trackRealStream(realStream);
+    _realCameraMode = true;
 
     // Now that we have the real stream, stop the fake one.
     // The 'ended' listener handles canvas cleanup, WeakMap deletion,
@@ -12438,12 +12799,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
    * @returns {Promise<MediaStream>} A new fake MediaStream
    */
   async function switchToFakeCamera(realStream, constraints) {
+    _realCameraMode = false;
+
     // Stop real stream tracks if provided
     if (realStream) {
       for (const track of realStream.getTracks()) {
         track.stop();
       }
+      activeRealStreams.delete(realStream);
     }
+    stopAllRealStreams();
 
     return createFakeStream(constraints, originalGetUserMedia);
   }
@@ -12744,34 +13109,41 @@ https://github.com/nodeca/pako/blob/main/LICENSE
    * @returns {HTMLElement|null}
    */
   function findButton(selector, textPatterns, root = document) {
-    // 1. Class-based selector (fast path)
-    const el = root.querySelector(selector);
-    if (el) return el;
+    // 1. Class-based selector (fast path with pattern check)
+    if (selector) {
+      try {
+        const candidates = root.querySelectorAll(selector);
+        for (const el of candidates) {
+          if (el.closest && (el.closest('.bfw-panel') || el.closest('.bfw-video-overlay'))) continue;
+          if (textPatterns && textPatterns.length > 0) {
+            if (btnTextMatches(el, textPatterns)) return el;
+          } else {
+            return el;
+          }
+        }
+      } catch (_) {}
+    }
 
     // 2. Text-content fallback (slow path)
     if (textPatterns && textPatterns.length > 0) {
       // Search among .face_btns elements first
       const faceBtns = root.querySelectorAll('.face_btns');
       for (const btn of faceBtns) {
-        const text = (btn.textContent || '').trim();
-        for (const pattern of textPatterns) {
-          if (text.includes(pattern)) return btn;
-        }
+        if (btn.closest && (btn.closest('.bfw-panel') || btn.closest('.bfw-video-overlay'))) continue;
+        if (btnTextMatches(btn, textPatterns)) return btn;
       }
       // Broader: search any button-like element
-      // Exclude our own panel buttons to avoid recursive self-clicks
+      // Exclude our own panel buttons and overlay buttons to avoid recursive self-clicks
       const candidates = root.querySelectorAll('button, [role="button"], .ant-btn, .ant-btn-primary');
       for (const btn of candidates) {
-        if (btn.closest('.bfw-panel')) continue;
-        const text = (btn.textContent || '').trim();
-        for (const pattern of textPatterns) {
-          if (text.includes(pattern)) return btn;
-        }
+        if (btn.closest && (btn.closest('.bfw-panel') || btn.closest('.bfw-video-overlay'))) continue;
+        if (btnTextMatches(btn, textPatterns)) return btn;
       }
     }
 
     return null;
   }
+
 
   /**
    * Check if a button element's text matches any pattern in the list.
@@ -12783,6 +13155,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const text = (btn.textContent || '').trim();
     return patterns.some(p => text.includes(p));
   }
+
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -12819,6 +13192,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       return false;
     }
   }
+
 
   // ---------------------------------------------------------------------------
   // Retry backoff
@@ -13032,6 +13406,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     _lastCompareSubmittedAt = Date.now();
     _compareCooldownMs = jitterMsFloor(AUTO_CONFIG.COMPARE_COOLDOWN_MS, 0.3);
     clickElement(btn, '开始对比');
+
     // Reset retry counter on successful comparison submission
     if (retryAttempt > 0) {
       info(`Retry counter reset (${retryAttempt} → 0) — compare submitted`);
@@ -13135,12 +13510,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       }
 
       compareAttempts++;
+      recordLastPickResult(false);
+
+      if (compareAttempts >= AUTO_CONFIG.RETRY_MAX_ATTEMPTS) {
+        warn(`Compare retry limit reached (${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}). Stopping.`);
+        appendLog(`对比重试次数已达上限 (${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次)，请手动操作`);
+        setStatus(false, '已停止 — 对比重试次数已达上限');
+        clearSequence();
+        compareAttempts = AUTO_CONFIG.RETRY_MAX_ATTEMPTS;
+        transitionState('photo_taken');
+        return true;
+      }
+
       const gapMs = getCompareRetryGapMs();
       info(`Verification failed — retry ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}: waiting ${(gapMs / 1000).toFixed(1)}s before retake`);
       appendLog(`验证未通过，${(gapMs / 1000).toFixed(1)}秒后自动重试第 ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次`);
-
-      // Record failure for the last picked image
-      recordLastPickResult(false);
 
       // Clear pending timers (don't touch compareAttempts)
       sequenceTimers.forEach(clearTimeout);
@@ -13176,12 +13560,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       }
 
       compareAttempts++;
+      recordLastPickResult(false);
+
+      if (compareAttempts >= AUTO_CONFIG.RETRY_MAX_ATTEMPTS) {
+        warn(`Compare retry limit reached (${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}). Stopping.`);
+        appendLog(`对比重试次数已达上限 (${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次)，请手动操作`);
+        setStatus(false, '已停止 — 对比重试次数已达上限');
+        clearSequence();
+        compareAttempts = AUTO_CONFIG.RETRY_MAX_ATTEMPTS;
+        transitionState('photo_taken');
+        return true;
+      }
+
       const gapMs = getCompareRetryGapMs();
       info(`Verification failed — retry ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}: waiting ${(gapMs / 1000).toFixed(1)}s before direct compare`);
       appendLog(`验证未通过，${(gapMs / 1000).toFixed(1)}秒后直接对比重试第 ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次`);
-
-      // Record failure for the last picked image
-      recordLastPickResult(false);
 
       // Transition now to prevent re-entry while the gap timer runs
       transitionState('photo_taking');
@@ -13201,11 +13594,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const cameraBtn = findButton(FACE_UI_SELECTORS.CAMERA_BTN, BTN_TEXT.CAMERA, modal);
     if (cameraBtn) {
       compareAttempts++;
+      recordLastPickResult(false);
+
+      if (compareAttempts >= AUTO_CONFIG.RETRY_MAX_ATTEMPTS) {
+        warn(`Compare retry limit reached (${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}). Stopping.`);
+        appendLog(`对比重试次数已达上限 (${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次)，请手动操作`);
+        setStatus(false, '已停止 — 对比重试次数已达上限');
+        clearSequence();
+        compareAttempts = AUTO_CONFIG.RETRY_MAX_ATTEMPTS;
+        transitionState('photo_taken');
+        return true;
+      }
+
       info(`Verification failed — retry ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}: modal reset to initial state`);
       appendLog(`验证未通过，自动重试第 ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次（重新开始）`);
-
-      // Record failure for the last picked image
-      recordLastPickResult(false);
 
       // Reset state so checkAndStartSequence can start a fresh sequence
       clearSequence();
@@ -13273,6 +13675,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         clearSequence();
         compareAttempts = 0;
       }
+      stopAllRealStreams();
+      return false;
+    }
+
+    // Ensure the modal is genuinely a face verification modal, not a system prompt or conflict dialog
+    const modalText = (modal.innerText || modal.textContent || '').trim();
+    if (modalText.includes('其他窗口') || modalText.includes('不能继续学习')) {
+      return false;
+    }
+    const hasFaceMarker = modal.querySelector('.face_btns, .face_btn')
+      || findButton(FACE_UI_SELECTORS.CAMERA_BTN, BTN_TEXT.CAMERA, modal)
+      || findButton(FACE_UI_SELECTORS.PHOTO_BTN, BTN_TEXT.PHOTO, modal)
+      || findButton(FACE_UI_SELECTORS.COMPARE_BTN, BTN_TEXT.COMPARE, modal);
+    if (!hasFaceMarker) {
       return false;
     }
 
@@ -13293,6 +13709,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     if (compareAttempts >= AUTO_CONFIG.RETRY_MAX_ATTEMPTS) {
       if (sequenceState !== 'photo_taken') {
         warn('Check: compare retry limit exhausted — parking in terminal state');
+        sequenceTimers.forEach(clearTimeout);
+        sequenceTimers = [];
         transitionState('photo_taken');
         appendLog('对比重试已达上限，已暂停 — 请手动操作');
         setStatus(false, '已暂停 — 对比重试已达上限');
@@ -13348,6 +13766,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     //          advancing state to camera_opening before the server closed
     //          the modal — leaving state stuck when the next modal opens.
     if (sequenceState !== 'idle' && sequenceState !== 'photo_taken') {
+      if (sequenceState === 'waiting_modal' && (Date.now() - _stateEnteredAt) < AUTO_CONFIG.CLICK_DELAY_MS + 500) {
+        return true;
+      }
+      if (sequenceState === 'camera_opening' && (Date.now() - _stateEnteredAt) < AUTO_CONFIG.CAMERA_OPEN_DELAY_MS + 500) {
+        return true;
+      }
+      if (sequenceState === 'photo_taking' && (Date.now() - _stateEnteredAt) < AUTO_CONFIG.PHOTO_DELAY_MS + 500) {
+        return true;
+      }
+
       const freshCameraBtn = findButton(FACE_UI_SELECTORS.CAMERA_BTN, BTN_TEXT.CAMERA, modal);
       const allPhotoBtns = modal.querySelectorAll(FACE_UI_SELECTORS.PHOTO_BTN);
       let freshPhotoBtn = null;
@@ -13494,7 +13922,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
           // page activity and spuriously wake the face verification state
           // machine.  See: shared MutationObserver → refreshCourseProgress
           // → pushProgress → onTimeUpdate → video element timeupdate event.
-          if (mutation.target.closest && mutation.target.closest('.bfw-panel')) continue;
+          if (mutation.target.closest && (mutation.target.closest('.bfw-panel') || mutation.target.closest('.bfw-video-overlay'))) continue;
 
           clearTimeout(debounceTimer);
           const baseDebounce = retryAttempt > 0
@@ -13528,6 +13956,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     clearTimeout(retryBackoffTimer);
     retryBackoffTimer = null;
     clearSequence();
+    stopAllRealStreams();
     document.removeEventListener('bfw:retry', onRetry);
     retryAttempt = 0;
     retryExhausted = false;
@@ -13869,6 +14298,24 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const state = overlayMap.get(video);
     if (!state) return;
 
+    // Stop any real streams associated with this video element
+    if (state.realStream) {
+      try {
+        for (const track of state.realStream.getTracks()) {
+          track.stop();
+        }
+      } catch (_) {}
+      state.realStream = null;
+    }
+    if (video.srcObject instanceof MediaStream) {
+      try {
+        for (const track of video.srcObject.getTracks()) {
+          track.stop();
+        }
+      } catch (_) {}
+    }
+    stopAllRealStreams();
+
     if (state.resizeObserver) {
       state.resizeObserver.disconnect();
     }
@@ -14063,7 +14510,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   let active = false;
 
   /** Whether install() has ever been called (prevents double-install). */
-  let installed = false;
+  let installed$1 = false;
 
   // ---------------------------------------------------------------------------
   // Saved references for uninstall
@@ -14149,11 +14596,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
    * Safe to call multiple times — subsequent calls are no-ops.
    */
   function installVisibilityInterceptor() {
-    if (installed) {
+    if (installed$1) {
       debug('Visibility interceptor: already installed, skipping');
       return;
     }
-    installed = true;
+    installed$1 = true;
 
     // --- document.hidden ---
     try {
@@ -14306,6 +14753,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     window.addEventListener('pagehide', onPageHideCapture, true);
     window.addEventListener('pageshow', onPageShowCapture, true);
 
+    // Check persisted setting synchronously at document-start so background
+    // tabs or early-navigated tabs are protected from the very first cycle
+    if (getSetting('disableVisibilityCheck', false)) {
+      active = true;
+      info('Visibility interceptor: ACTIVATED at document-start from persisted setting');
+    }
+
     info('Visibility interceptor: installed (all vectors covered)');
   }
 
@@ -14318,7 +14772,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
    * pass through to the original browser behavior.
    */
   function enableVisibilityInterceptor() {
-    if (!installed) {
+    if (!installed$1) {
       installVisibilityInterceptor();
     }
     if (active) return;
@@ -14364,6 +14818,357 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
 
   /**
+   * @file Audio interceptor — keeps course video playback constantly muted.
+   * @author PhoebeCLS
+   *
+   * Prevents video audio from playing when lessons auto-switch or when the user
+   * manually navigates between lessons.  The website (tj.100.wang) and its
+   * player (Aliplayer / HTML5 Video) reinitialize the video element or reset
+   * `video.muted = false` on every playback kickoff.
+   *
+   * This module intercepts:
+   *   1. HTMLMediaElement.prototype.muted  — forces underlying mute while returning
+   *      `false` to site scripts so anti-cheat / idle detection stays unaware.
+   *   2. HTMLMediaElement.prototype.volume — retains the site's volume setting
+   *      transparently while underlying audio is silenced.
+   *   3. HTMLMediaElement.prototype.play   — ensures video is muted before frames start.
+   *   4. Media events (play, playing, loadedmetadata, canplay, loadstart, volumechange) —
+   *      re-asserts mute state whenever the player attempts to unmute.
+   *   5. Element creation (createElement, new Audio) & src/load hooks — silences media
+   *      from birth before any audio buffers can reach the output hardware.
+   */
+
+
+  // ---------------------------------------------------------------------------
+  // State
+  // ---------------------------------------------------------------------------
+
+  let installed = false;
+
+  /** Original HTMLMediaElement.prototype.muted descriptor */
+  let _origMutedDesc = null;
+
+  /** Original HTMLMediaElement.prototype.volume descriptor */
+  let _origVolumeDesc = null;
+
+  /** Original HTMLMediaElement.prototype.play function */
+  let _origPlay = null;
+
+  /** Original HTMLMediaElement.prototype.load function */
+  let _origLoad = null;
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Retrieve a property descriptor from an object or anywhere up its prototype chain.
+   * @param {Object} obj
+   * @param {string} prop
+   * @returns {PropertyDescriptor|null}
+   */
+  function getPropertyDescriptor(obj, prop) {
+    let cur = obj;
+    while (cur) {
+      const desc = Object.getOwnPropertyDescriptor(cur, prop);
+      if (desc) return desc;
+      cur = Object.getPrototypeOf(cur);
+    }
+    return null;
+  }
+
+  /**
+   * Determine whether an element is a media element (handles cross-frame elements).
+   * @param {*} el
+   * @returns {boolean}
+   */
+  function isMediaElement(el) {
+    if (!el) return false;
+    if (typeof HTMLMediaElement !== 'undefined' && el instanceof HTMLMediaElement) return true;
+    const tag = (el.tagName || '').toUpperCase();
+    return tag === 'VIDEO' || tag === 'AUDIO';
+  }
+
+  /**
+   * Apply muted state to a media element without triggering page detection.
+   * @param {HTMLMediaElement|Element} el
+   */
+  function applyMuteToElement(el) {
+    if (!isMediaElement(el)) return;
+
+    try {
+      if (_origMutedDesc && _origMutedDesc.get && _origMutedDesc.set) {
+        if (!_origMutedDesc.get.call(el)) {
+          _origMutedDesc.set.call(el, true);
+          debug('Audio interceptor: enforced mute on media element');
+        }
+      } else {
+        el.muted = true;
+      }
+    } catch (e) {
+      try { el.muted = true; } catch (_) {}
+      debug('Audio interceptor: failed to mute element via descriptor:', e);
+    }
+
+    try {
+      el.defaultMuted = true;
+    } catch (_) {}
+  }
+
+  /**
+   * Restore unmuted state to a media element according to its virtual setting.
+   * @param {HTMLMediaElement|Element} el
+   */
+  function applyUnmuteToElement(el) {
+    if (!isMediaElement(el)) return;
+
+    try {
+      const desired = el._fakeMuted !== undefined ? el._fakeMuted : false;
+      if (_origMutedDesc && _origMutedDesc.set) {
+        _origMutedDesc.set.call(el, desired);
+      } else {
+        el.muted = desired;
+      }
+      debug('Audio interceptor: restored mute state on media element:', desired);
+    } catch (e) {
+      debug('Audio interceptor: failed to restore mute state on element:', e);
+    }
+
+    try { el.defaultMuted = false; } catch (_) {}
+  }
+
+  /**
+   * Mute all video and audio elements currently in the document.
+   */
+  function muteAllMedia() {
+    const mediaElements = document.querySelectorAll('video, audio');
+    for (const el of mediaElements) {
+      applyMuteToElement(el);
+    }
+  }
+
+  /**
+   * Unmute all video and audio elements currently in the document.
+   */
+  function unmuteAllMedia() {
+    const mediaElements = document.querySelectorAll('video, audio');
+    for (const el of mediaElements) {
+      applyUnmuteToElement(el);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Event handlers (capture phase)
+  // ---------------------------------------------------------------------------
+
+  function onMediaCaptureEvent(e) {
+    if (!getSetting('muteVideo', false)) return;
+    if (isMediaElement(e.target)) {
+      applyMuteToElement(e.target);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Installation
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Install the audio interceptor by monkey-patching HTMLMediaElement.prototype
+   * and Document element creation hooks. Safe to call multiple times (idempotent).
+   */
+  function installAudioInterceptor() {
+    if (installed) {
+      debug('Audio interceptor: already installed, skipping');
+      return;
+    }
+
+    if (typeof HTMLMediaElement === 'undefined') {
+      debug('Audio interceptor: HTMLMediaElement not available, skipping');
+      return;
+    }
+
+    // 1. Hook HTMLMediaElement.prototype.muted
+    try {
+      _origMutedDesc = getPropertyDescriptor(HTMLMediaElement.prototype, 'muted');
+      if (_origMutedDesc && _origMutedDesc.get && _origMutedDesc.set) {
+        Object.defineProperty(HTMLMediaElement.prototype, 'muted', {
+          get() {
+            if (getSetting('muteVideo', false)) {
+              // When muted setting is active, pretend to the page that the media is unmuted
+              // (or whatever value the page script explicitly set) so anti-cheat doesn't complain.
+              return this._fakeMuted !== undefined ? this._fakeMuted : false;
+            }
+            return _origMutedDesc.get.call(this);
+          },
+          set(val) {
+            this._fakeMuted = Boolean(val);
+            if (getSetting('muteVideo', false)) {
+              // Always keep the underlying audio track muted
+              if (!_origMutedDesc.get.call(this)) {
+                _origMutedDesc.set.call(this, true);
+              }
+            } else {
+              _origMutedDesc.set.call(this, val);
+            }
+          },
+          configurable: true,
+          enumerable: true,
+        });
+      }
+    } catch (e) {
+      warn('Audio interceptor: could not override HTMLMediaElement.prototype.muted:', e);
+    }
+
+    // 2. Hook HTMLMediaElement.prototype.volume
+    try {
+      _origVolumeDesc = getPropertyDescriptor(HTMLMediaElement.prototype, 'volume');
+      if (_origVolumeDesc && _origVolumeDesc.get && _origVolumeDesc.set) {
+        Object.defineProperty(HTMLMediaElement.prototype, 'volume', {
+          get() {
+            if (getSetting('muteVideo', false)) {
+              return this._fakeVolume !== undefined ? this._fakeVolume : _origVolumeDesc.get.call(this);
+            }
+            return _origVolumeDesc.get.call(this);
+          },
+          set(val) {
+            const num = Number(val);
+            if (isNaN(num) || num < 0 || num > 1) {
+              throw new DOMException(
+                "Failed to set the 'volume' property on 'HTMLMediaElement': The volume provided is outside the range [0, 1].",
+                'IndexSizeError',
+              );
+            }
+            this._fakeVolume = num;
+            _origVolumeDesc.set.call(this, num);
+            if (getSetting('muteVideo', false)) {
+              applyMuteToElement(this);
+            }
+          },
+          configurable: true,
+          enumerable: true,
+        });
+      }
+    } catch (e) {
+      warn('Audio interceptor: could not override HTMLMediaElement.prototype.volume:', e);
+    }
+
+    // 3. Hook HTMLMediaElement.prototype.play
+    try {
+      _origPlay = HTMLMediaElement.prototype.play;
+      if (typeof _origPlay === 'function') {
+        HTMLMediaElement.prototype.play = function interceptedPlay(...args) {
+          if (getSetting('muteVideo', false)) {
+            applyMuteToElement(this);
+          }
+          return _origPlay.apply(this, args);
+        };
+      }
+    } catch (e) {
+      warn('Audio interceptor: could not override HTMLMediaElement.prototype.play:', e);
+    }
+
+    // 4. Hook HTMLMediaElement.prototype.load
+    try {
+      _origLoad = HTMLMediaElement.prototype.load;
+      if (typeof _origLoad === 'function') {
+        HTMLMediaElement.prototype.load = function interceptedLoad(...args) {
+          if (getSetting('muteVideo', false)) {
+            applyMuteToElement(this);
+          }
+          return _origLoad.apply(this, args);
+        };
+      }
+    } catch (e) {
+      debug('Audio interceptor: could not override HTMLMediaElement.prototype.load:', e);
+    }
+
+    // 5. Hook Document.prototype.createElement to silence elements upon birth
+    try {
+      if (typeof Document !== 'undefined' && Document.prototype.createElement) {
+        const origCreateElement = Document.prototype.createElement;
+        Document.prototype.createElement = function interceptedCreateElement(tagName, ...args) {
+          const el = origCreateElement.call(this, tagName, ...args);
+          if (typeof tagName === 'string') {
+            const tag = tagName.toLowerCase();
+            if (tag === 'video' || tag === 'audio') {
+              if (getSetting('muteVideo', false)) {
+                applyMuteToElement(el);
+              }
+            }
+          }
+          return el;
+        };
+      }
+    } catch (e) {
+      debug('Audio interceptor: could not hook createElement:', e);
+    }
+
+    // 6. Hook window.Audio constructor
+    try {
+      if (typeof window !== 'undefined' && window.Audio) {
+        const OrigAudio = window.Audio;
+        const InterceptedAudio = function(...args) {
+          const audio = new OrigAudio(...args);
+          if (getSetting('muteVideo', false)) {
+            applyMuteToElement(audio);
+          }
+          return audio;
+        };
+        InterceptedAudio.prototype = OrigAudio.prototype;
+        window.Audio = InterceptedAudio;
+      }
+    } catch (e) {
+      debug('Audio interceptor: could not hook Audio constructor:', e);
+    }
+
+    // 7. Capture media playback and volume events across document
+    const captureEvents = [
+      'play', 'playing', 'loadedmetadata', 'canplay',
+      'loadstart', 'canplaythrough', 'durationchange', 'timeupdate', 'volumechange',
+    ];
+    for (const ev of captureEvents) {
+      try {
+        document.addEventListener(ev, onMediaCaptureEvent, true);
+      } catch (_) {}
+    }
+
+    // 8. If muteVideo is already active in persisted storage, enforce immediately
+    if (getSetting('muteVideo', false)) {
+      muteAllMedia();
+    }
+
+    installed = true;
+    info('Audio interceptor: installed (HTMLMediaElement monkey-patch & event capture)');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Settings integration
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Subscribe to the `muteVideo` setting to react to toggles at runtime.
+   * Called from index.js after settings are loaded.
+   */
+  function initAudioInterceptorSettings() {
+    onChange('muteVideo', (enabled) => {
+      if (enabled) {
+        muteAllMedia();
+        info('Audio interceptor: enabled — video playback muted');
+        appendLog('已启用静音播放视频');
+      } else {
+        unmuteAllMedia();
+        info('Audio interceptor: disabled — video playback restored');
+        appendLog('已关闭静音播放视频');
+      }
+    });
+
+    // Apply immediately if already enabled in persisted settings
+    if (getSetting('muteVideo', false)) {
+      muteAllMedia();
+    }
+  }
+
+  /**
    * @file Auto-course processor — course progress monitoring and automatic playback.
    *
    * Responsibilities:
@@ -14389,7 +15194,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   const SELECTORS = {
     /** Play button overlay (appears on page load before video starts) */
-    PLAY_BTN: '.playIcon___2PP65, .playIcon',
+    PLAY_BTN: '.playIcon___2PP65, [class*="playIcon"], .prism-big-play-btn, .playIcon',
     /** Ant Design collapse container (root of the course directory) */
     COLLAPSE_CONTAINER: '.ant-collapse',
     /** Fallback container: list wrapper (hash class) */
@@ -14794,28 +15599,168 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   // ---------------------------------------------------------------------------
 
   /**
+   * Check whether the daily lesson limit has been reached for the current session.
+   * @returns {boolean}
+   */
+  function isDailyLimitReached() {
+    const limit = getSetting('dailyLessonLimit', 0);
+    if (limit <= 0) return false;
+    const remaining = getSetting('lessonLimitRemaining', 0);
+    return remaining <= 0;
+  }
+
+  /**
+   * Check whether the lesson limit has been reached.
+   * If reached, pauses auto-course playback, freezes video elements, and triggers a Windows notification.
+   * @returns {boolean} true if limit reached and auto-course was paused
+   */
+  function checkDailyLessonLimit(e) {
+    if (!isDailyLimitReached()) return false;
+
+    const limit = getSetting('dailyLessonLimit', 0);
+    info('Course: lesson limit reached — pausing playback and preventing auto-advance');
+    appendLog(`已达到视频播放限制目标 (${limit} 个视频)，自动暂停刷课`);
+    setStatus(false, `已暂停 — 本轮已刷满 ${limit} 个视频`);
+
+    if (e && typeof e.stopImmediatePropagation === 'function') {
+      try {
+        e.stopImmediatePropagation();
+        e.stopPropagation();
+        e.preventDefault();
+      } catch (_) {}
+    }
+
+    if (videoEl) {
+      try {
+        if (!videoEl.paused) videoEl.pause();
+      } catch (_) {}
+    }
+
+    sendWindowsNotification(
+      '百分网自动刷课助手',
+      `已完成设定的 ${limit} 个视频播放任务，已自动暂停刷课。`
+    );
+    return true;
+  }
+
+
+  let lastConflictClickTime = 0;
+
+  /**
+   * Detect and resolve "other window" conflict prompt automatically.
+   */
+  function checkOtherWindowConflict() {
+    if (!running || !getSetting('autoCourse', false)) return false;
+
+    const bodyText = (typeof document !== 'undefined' && document.body) ? (document.body.innerText || '') : '';
+    if (bodyText.includes('其他窗口') || bodyText.includes('本窗口不能继续学习')) {
+      const now = Date.now();
+      // 2s cooldown to prevent log flooding while modal is closing
+      if (now - lastConflictClickTime < 2000) return true;
+
+      let targetBtn = null;
+
+      // 1. Precise search within Ant Design modal / confirm dialog
+      const modals = Array.from(document.querySelectorAll('.ant-modal, .ant-modal-confirm, .ant-modal-content, [role="dialog"]'));
+      for (const modal of modals) {
+        if (modal.closest && modal.closest('.bfw-panel')) continue;
+        const mText = (modal.innerText || modal.textContent || '').trim();
+        if (mText.includes('其他窗口') || mText.includes('本窗口不能继续学习')) {
+          // Priority A: specific primary button in modal footer (e.g. .ant-modal-confirm-btns button)
+          const confirmBtn = modal.querySelector('.ant-modal-confirm-btns button, .ant-modal-confirm-btns .ant-btn, button.ant-btn-primary');
+          if (confirmBtn) {
+            targetBtn = confirmBtn;
+            break;
+          }
+          // Priority B: any button inside this modal containing "继续播放" or "继续"
+          const btns = Array.from(modal.querySelectorAll('button, .ant-btn, [role="button"], a'));
+          for (const b of btns) {
+            const bText = (b.textContent || '').trim();
+            if (bText.includes('继续') || bText.includes('确定')) {
+              targetBtn = b;
+              break;
+            }
+          }
+          if (targetBtn) break;
+        }
+      }
+
+      // 2. Fallback: Search among all clickable buttons (never div/span) across document
+      if (!targetBtn) {
+        const candidates = Array.from(document.querySelectorAll('button, .ant-btn, [role="button"], a'));
+        for (const el of candidates) {
+          if (el.closest && (el.closest('.bfw-panel') || el.closest('.bfw-video-overlay'))) continue;
+          const text = (el.textContent || '').trim();
+          if (text === '继续播放' || text.includes('继续播放')) {
+            targetBtn = el;
+            break;
+          }
+        }
+      }
+
+      if (targetBtn) {
+        lastConflictClickTime = now;
+        info('Course: detected "other window" conflict modal — auto-clicking "继续播放"');
+        appendLog('检测到其他窗口互斥提示，已自动点击继续播放');
+
+        const clickable = targetBtn.closest('button, [role="button"], a') || targetBtn;
+        try {
+          clickable.click();
+        } catch (e) {
+          warn('Failed to click conflict button:', e);
+        }
+
+        setTimeout(() => {
+          startPlayRetry();
+        }, 500);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Attempt to click the play button.
    * @returns {boolean} true if the button was found and clicked
    */
   function tryClickPlay() {
     const btn = document.querySelector(SELECTORS.PLAY_BTN);
-    if (!btn) return false;
-
-    try {
-      btn.click();
-      info('Course: auto-clicked play button');
-      appendLog('已自动开始播放课程视频');
-      return true;
-    } catch (e) {
-      warn('Course: failed to click play button:', e);
-      return false;
+    if (btn) {
+      try {
+        btn.click();
+        info('Course: auto-clicked play button');
+        appendLog('已自动开始播放课程视频');
+        return true;
+      } catch (e) {
+        warn('Course: failed to click play button:', e);
+      }
     }
+
+    const v = videoEl || document.querySelector('#player_html5_api, #player video, video');
+    if (v && v.paused) {
+      try {
+        const p = v.play();
+        if (p && typeof p.then === 'function') {
+          p.then(() => {
+            info('Course: auto-started video via HTMLMediaElement.play()');
+            appendLog('已自动开始播放课程视频');
+          }).catch((err) => {
+            debug('Course: direct video.play() waiting for interaction:', err);
+          });
+        }
+        return true;
+      } catch (_) {}
+    }
+
+    return false;
   }
 
   /**
    * Start retrying the play button click until success or max retries.
    */
   function startPlayRetry() {
+    if (isDailyLimitReached()) return;
+
     // Clear any existing timer to prevent orphaned timeouts when re-entered
     // (e.g. if the UI checkbox fires onChange during init while already running)
     if (playRetryTimer) {
@@ -14828,6 +15773,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
     function scheduleNext() {
       if (!running || !getSetting('autoCourse', false)) {
+        playRetryTimer = 0;
+        return;
+      }
+      if (isDailyLimitReached()) {
         playRetryTimer = 0;
         return;
       }
@@ -14877,6 +15826,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       if (!videoEl) return;
 
       if (videoEl.paused && !videoEl.ended) {
+        // Do not auto-resume if face verification modal is currently displayed
+        if (typeof document !== 'undefined' && document.querySelector(FACE_UI_SELECTORS.MODAL)) {
+          scheduleStuckCheck();
+          return;
+        }
+
         if (resumeAttempts >= COURSE_CONFIG.MAX_RESUME_ATTEMPTS) {
           warn('Course: max resume attempts reached, giving up');
           appendLog('视频自动恢复失败，请手动播放');
@@ -14944,6 +15899,17 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
 
   function onVideoPlay() {
+    if (isDailyLimitReached()) {
+      info('Course: video play intercepted — daily limit already reached');
+      if (videoEl && !videoEl.paused) {
+        try { videoEl.pause(); } catch (_) {}
+      }
+      return;
+    }
+
+    if (getSetting('muteVideo', false) && videoEl) {
+      applyMuteToElement(videoEl);
+    }
     resumeAttempts = 0;
     scheduleStuckCheck();
     pushProgress();
@@ -14954,21 +15920,49 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     scheduleStuckCheck();
   }
 
-  function onVideoEnded() {
+  function onVideoEnded(e) {
     clearTimeout(stuckTimer);
     const courseProgress = parseCourseProgress();
-    appendLog(`视频播放完成 (${courseProgress.currentName || '当前课程'})`);
-    info(`Course: video ended — ${courseProgress.currentName}`);
+    const lessonKey = courseProgress.currentName
+      ? `${courseProgress.courseId || ''}:${courseProgress.currentName}`
+      : '';
+    const { count: todayCount, isNew } = recordCompletedLesson(lessonKey);
+
+    const limit = getSetting('dailyLessonLimit', 0);
+    let remainingText = '';
+    if (limit > 0) {
+      let remaining = getSetting('lessonLimitRemaining', limit);
+      if (isNew) {
+        remaining = Math.max(0, remaining - 1);
+        setSetting('lessonLimitRemaining', remaining);
+      }
+      remainingText = `，本轮还剩 ${remaining} 个视频`;
+    }
+
+    if (isNew) {
+      appendLog(`视频播放完成 (${courseProgress.currentName || '当前课程'})${remainingText}，今日累计已播 ${todayCount} 个视频`);
+      info(`Course: video ended — ${courseProgress.currentName} (today: ${todayCount}${remainingText})`);
+    } else {
+      appendLog(`视频播放完成 (${courseProgress.currentName || '当前课程'}) [重复播放已学视频，不重复计数]`);
+      info(`Course: video ended (duplicate) — ${courseProgress.currentName}`);
+    }
 
     updateCourseProgress({
       ...courseProgress,
       videoProgress: 100,
-      videoPaused: false,
+      videoPaused: true,
       autoCourseEnabled: getSetting('autoCourse', false),
     });
 
     // Re-invalidate cache — platform may navigate to next lesson
     invalidateCourseCache();
+
+    if (checkDailyLessonLimit(e)) {
+      if (e && typeof e.stopImmediatePropagation === 'function') {
+        try { e.stopImmediatePropagation(); } catch (_) {}
+      }
+      return;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -15038,7 +16032,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     videoEl.addEventListener('timeupdate', onTimeUpdate);
     videoEl.addEventListener('play', onVideoPlay);
     videoEl.addEventListener('pause', onVideoPause);
-    videoEl.addEventListener('ended', onVideoEnded);
+    videoEl.addEventListener('ended', onVideoEnded, true);
+
+    if (getSetting('muteVideo', false)) {
+      applyMuteToElement(videoEl);
+    }
 
     debug('Course: video event listeners bound');
     return videoEl;
@@ -15054,7 +16052,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     el.removeEventListener('timeupdate', onTimeUpdate);
     el.removeEventListener('play', onVideoPlay);
     el.removeEventListener('pause', onVideoPause);
-    el.removeEventListener('ended', onVideoEnded);
+    el.removeEventListener('ended', onVideoEnded, true);
     debug('Course: video event listeners unbound');
   }
 
@@ -15116,6 +16114,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         startDirectoryObserver();
       }
 
+      checkOtherWindowConflict();
+
+      if (isDailyLimitReached()) {
+        if (videoEl && !videoEl.paused) {
+          try { videoEl.pause(); } catch (_) {}
+        }
+      }
+
       pushProgress();
 
       // Schedule next tick with jitter
@@ -15127,6 +16133,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
     // Auto-play if enabled
     if (getSetting('autoCourse', false)) {
+      const limit = getSetting('dailyLessonLimit', 0);
+      const remaining = getSetting('lessonLimitRemaining', 0);
+      if (limit > 0 && remaining <= 0) {
+        setSetting('lessonLimitRemaining', limit);
+        appendLog(`已重置本轮刷课目标为 ${limit} 个视频`);
+      }
+
       startPlayRetry();
       setStatus(true, '运行中 — 自动刷课已启用');
     }
@@ -15141,6 +16154,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   onChange('autoCourse', (enabled) => {
     if (enabled) {
+      const limit = getSetting('dailyLessonLimit', 0);
+      const remaining = getSetting('lessonLimitRemaining', 0);
+      if (limit > 0 && remaining <= 0) {
+        setSetting('lessonLimitRemaining', limit);
+        appendLog(`已重置本轮刷课目标为 ${limit} 个视频`);
+      }
+
       if (!running) {
         startCourseMonitor();
       } else {
@@ -15160,6 +16180,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         appendLog('自动刷课已关闭 — 仅监控进度');
       }
     }
+  });
+
+  onChange('dailyLessonLimit', (limit) => {
+    if (limit > 0) {
+      setSetting('lessonLimitRemaining', limit);
+    }
+    pushProgress();
+    if (limit > 0 && getSetting('autoCourse', false)) {
+      checkDailyLessonLimit();
+    }
+  });
+
+  onChange('lessonLimitRemaining', () => {
+    pushProgress();
   });
 
   /**
@@ -15192,6 +16226,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
     try { installVisibilityInterceptor(); } catch (e) {
       error('Visibility interceptor install failed:', e);
+    }
+
+    try { installAudioInterceptor(); } catch (e) {
+      error('Audio interceptor install failed:', e);
     }
 
     // ---- Phase 2: DOM-dependent components (deferred to ready) ----
@@ -15228,6 +16266,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         debug('Visibility interceptor init failed:', e);
       }
 
+      // 2a3. Audio interceptor — must run after settings load
+      try {
+        initAudioInterceptorSettings();
+      } catch (e) {
+        debug('Audio interceptor init failed:', e);
+      }
+
       // 2b. Image pool
       try {
         await initPool();
@@ -15239,8 +16284,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       }
 
       // 2c. Build UI panel (must succeed — otherwise we can't show any feedback)
+
       try {
         buildUI();
+
         uiReady = true;
         appendLog('UI面板已挂载');
       } catch (e) {

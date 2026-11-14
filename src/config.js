@@ -55,7 +55,7 @@ export const AUTO_CONFIG = {
   /** Delay after clicking "open camera" before trying the photo button (ms) */
   CAMERA_OPEN_DELAY_MS: 1500,
   /** Delay after clicking "take photo" before trying the compare button (ms) */
-  PHOTO_DELAY_MS: 1000,
+  PHOTO_DELAY_MS: 1200,
   /** Max retries when compare button is not yet in the DOM */
   MAX_COMPARE_RETRIES: 5,
   /** Retry interval for compare button polling (ms) */

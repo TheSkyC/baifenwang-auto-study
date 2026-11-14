@@ -823,6 +823,13 @@ export const STYLES = `
   .bfw-course-stat {
     font-size: 10px;
     color: #6c7086;
+    line-height: 1.4;
+  }
+  .bfw-course-today-stat {
+    font-size: 10px;
+    color: #89b4fa;
+    line-height: 1.4;
+    margin-top: 3px;
   }
 
   /* ================================================================
@@ -929,6 +936,36 @@ export const STYLES = `
     color: #585b70;
     flex-basis: 100%;
     margin-left: 22px; /* indent under icon */
+  }
+
+  .bfw-limit-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .bfw-limit-input {
+    width: 48px;
+    padding: 3px 6px;
+    background: #11111b;
+    border: 1px solid #45475a;
+    border-radius: 4px;
+    color: #cdd6f4;
+    font-size: 12px;
+    text-align: center;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
+  }
+
+  .bfw-limit-input:focus {
+    border-color: #89b4fa;
+  }
+
+  .bfw-limit-unit {
+    font-size: 11px;
+    color: #6c7086;
   }
 
   /* ================================================================

@@ -276,6 +276,13 @@ export function installVisibilityInterceptor() {
   window.addEventListener('pagehide', onPageHideCapture, true);
   window.addEventListener('pageshow', onPageShowCapture, true);
 
+  // Check persisted setting synchronously at document-start so background
+  // tabs or early-navigated tabs are protected from the very first cycle
+  if (getSetting('disableVisibilityCheck', false)) {
+    active = true;
+    info('Visibility interceptor: ACTIVATED at document-start from persisted setting');
+  }
+
   info('Visibility interceptor: installed (all vectors covered)');
 }
 

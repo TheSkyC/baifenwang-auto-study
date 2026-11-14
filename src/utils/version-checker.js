@@ -19,6 +19,7 @@ import { SCRIPT_VERSION } from '../config.js';
  */
 const COMPATIBILITY_MAP = {
   '1.0.20': 'tested',
+  '1.0.21': 'tested',
   // Add more as you test new versions
 };
 

@@ -18,11 +18,14 @@
  */
 
 import { COURSE_CONFIG, jitterMs, jitterMsFloor } from '../config.js';
-import { getSetting, onChange } from '../settings.js';
+import { getSetting, setSetting, onChange } from '../settings.js';
 import { info, debug, warn } from '../utils/logger.js';
 import { appendLog, setStatus, updateCourseProgress } from '../ui/builder.js';
-import { startSession, updateSession, endSession, getProgressData } from '../utils/progress-tracker.js';
+import { startSession, updateSession, endSession, getProgressData, getTodayCompletedLessons, recordCompletedLesson } from '../utils/progress-tracker.js';
 import { resetNoRepeatState } from '../pool/image-pool.js';
+import { applyMuteToElement } from '../core/audio-interceptor.js';
+import { sendWindowsNotification } from '../utils/notification.js';
+import { FACE_UI_SELECTORS } from './processor.js';
 
 // ---------------------------------------------------------------------------
 // DOM Selectors
@@ -30,7 +33,7 @@ import { resetNoRepeatState } from '../pool/image-pool.js';
 
 const SELECTORS = {
   /** Play button overlay (appears on page load before video starts) */
-  PLAY_BTN: '.playIcon___2PP65, .playIcon',
+  PLAY_BTN: '.playIcon___2PP65, [class*="playIcon"], .prism-big-play-btn, .playIcon',
   /** Ant Design collapse container (root of the course directory) */
   COLLAPSE_CONTAINER: '.ant-collapse',
   /** Fallback container: list wrapper (hash class) */
@@ -438,28 +441,168 @@ function getVideoInfo() {
 // ---------------------------------------------------------------------------
 
 /**
+ * Check whether the daily lesson limit has been reached for the current session.
+ * @returns {boolean}
+ */
+export function isDailyLimitReached() {
+  const limit = getSetting('dailyLessonLimit', 0);
+  if (limit <= 0) return false;
+  const remaining = getSetting('lessonLimitRemaining', 0);
+  return remaining <= 0;
+}
+
+/**
+ * Check whether the lesson limit has been reached.
+ * If reached, pauses auto-course playback, freezes video elements, and triggers a Windows notification.
+ * @returns {boolean} true if limit reached and auto-course was paused
+ */
+function checkDailyLessonLimit(e) {
+  if (!isDailyLimitReached()) return false;
+
+  const limit = getSetting('dailyLessonLimit', 0);
+  info('Course: lesson limit reached — pausing playback and preventing auto-advance');
+  appendLog(`已达到视频播放限制目标 (${limit} 个视频)，自动暂停刷课`);
+  setStatus(false, `已暂停 — 本轮已刷满 ${limit} 个视频`);
+
+  if (e && typeof e.stopImmediatePropagation === 'function') {
+    try {
+      e.stopImmediatePropagation();
+      e.stopPropagation();
+      e.preventDefault();
+    } catch (_) {}
+  }
+
+  if (videoEl) {
+    try {
+      if (!videoEl.paused) videoEl.pause();
+    } catch (_) {}
+  }
+
+  sendWindowsNotification(
+    '百分网自动刷课助手',
+    `已完成设定的 ${limit} 个视频播放任务，已自动暂停刷课。`
+  );
+  return true;
+}
+
+
+let lastConflictClickTime = 0;
+
+/**
+ * Detect and resolve "other window" conflict prompt automatically.
+ */
+function checkOtherWindowConflict() {
+  if (!running || !getSetting('autoCourse', false)) return false;
+
+  const bodyText = (typeof document !== 'undefined' && document.body) ? (document.body.innerText || '') : '';
+  if (bodyText.includes('其他窗口') || bodyText.includes('本窗口不能继续学习')) {
+    const now = Date.now();
+    // 2s cooldown to prevent log flooding while modal is closing
+    if (now - lastConflictClickTime < 2000) return true;
+
+    let targetBtn = null;
+
+    // 1. Precise search within Ant Design modal / confirm dialog
+    const modals = Array.from(document.querySelectorAll('.ant-modal, .ant-modal-confirm, .ant-modal-content, [role="dialog"]'));
+    for (const modal of modals) {
+      if (modal.closest && modal.closest('.bfw-panel')) continue;
+      const mText = (modal.innerText || modal.textContent || '').trim();
+      if (mText.includes('其他窗口') || mText.includes('本窗口不能继续学习')) {
+        // Priority A: specific primary button in modal footer (e.g. .ant-modal-confirm-btns button)
+        const confirmBtn = modal.querySelector('.ant-modal-confirm-btns button, .ant-modal-confirm-btns .ant-btn, button.ant-btn-primary');
+        if (confirmBtn) {
+          targetBtn = confirmBtn;
+          break;
+        }
+        // Priority B: any button inside this modal containing "继续播放" or "继续"
+        const btns = Array.from(modal.querySelectorAll('button, .ant-btn, [role="button"], a'));
+        for (const b of btns) {
+          const bText = (b.textContent || '').trim();
+          if (bText.includes('继续') || bText.includes('确定')) {
+            targetBtn = b;
+            break;
+          }
+        }
+        if (targetBtn) break;
+      }
+    }
+
+    // 2. Fallback: Search among all clickable buttons (never div/span) across document
+    if (!targetBtn) {
+      const candidates = Array.from(document.querySelectorAll('button, .ant-btn, [role="button"], a'));
+      for (const el of candidates) {
+        if (el.closest && (el.closest('.bfw-panel') || el.closest('.bfw-video-overlay'))) continue;
+        const text = (el.textContent || '').trim();
+        if (text === '继续播放' || text.includes('继续播放')) {
+          targetBtn = el;
+          break;
+        }
+      }
+    }
+
+    if (targetBtn) {
+      lastConflictClickTime = now;
+      info('Course: detected "other window" conflict modal — auto-clicking "继续播放"');
+      appendLog('检测到其他窗口互斥提示，已自动点击继续播放');
+
+      const clickable = targetBtn.closest('button, [role="button"], a') || targetBtn;
+      try {
+        clickable.click();
+      } catch (e) {
+        warn('Failed to click conflict button:', e);
+      }
+
+      setTimeout(() => {
+        startPlayRetry();
+      }, 500);
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Attempt to click the play button.
  * @returns {boolean} true if the button was found and clicked
  */
 function tryClickPlay() {
   const btn = document.querySelector(SELECTORS.PLAY_BTN);
-  if (!btn) return false;
-
-  try {
-    btn.click();
-    info('Course: auto-clicked play button');
-    appendLog('已自动开始播放课程视频');
-    return true;
-  } catch (e) {
-    warn('Course: failed to click play button:', e);
-    return false;
+  if (btn) {
+    try {
+      btn.click();
+      info('Course: auto-clicked play button');
+      appendLog('已自动开始播放课程视频');
+      return true;
+    } catch (e) {
+      warn('Course: failed to click play button:', e);
+    }
   }
+
+  const v = videoEl || document.querySelector('#player_html5_api, #player video, video');
+  if (v && v.paused) {
+    try {
+      const p = v.play();
+      if (p && typeof p.then === 'function') {
+        p.then(() => {
+          info('Course: auto-started video via HTMLMediaElement.play()');
+          appendLog('已自动开始播放课程视频');
+        }).catch((err) => {
+          debug('Course: direct video.play() waiting for interaction:', err);
+        });
+      }
+      return true;
+    } catch (_) {}
+  }
+
+  return false;
 }
 
 /**
  * Start retrying the play button click until success or max retries.
  */
 function startPlayRetry() {
+  if (isDailyLimitReached()) return;
+
   // Clear any existing timer to prevent orphaned timeouts when re-entered
   // (e.g. if the UI checkbox fires onChange during init while already running)
   if (playRetryTimer) {
@@ -472,6 +615,10 @@ function startPlayRetry() {
 
   function scheduleNext() {
     if (!running || !getSetting('autoCourse', false)) {
+      playRetryTimer = 0;
+      return;
+    }
+    if (isDailyLimitReached()) {
       playRetryTimer = 0;
       return;
     }
@@ -521,6 +668,12 @@ function scheduleStuckCheck() {
     if (!videoEl) return;
 
     if (videoEl.paused && !videoEl.ended) {
+      // Do not auto-resume if face verification modal is currently displayed
+      if (typeof document !== 'undefined' && document.querySelector(FACE_UI_SELECTORS.MODAL)) {
+        scheduleStuckCheck();
+        return;
+      }
+
       if (resumeAttempts >= COURSE_CONFIG.MAX_RESUME_ATTEMPTS) {
         warn('Course: max resume attempts reached, giving up');
         appendLog('视频自动恢复失败，请手动播放');
@@ -588,6 +741,17 @@ function onTimeUpdate() {
 }
 
 function onVideoPlay() {
+  if (isDailyLimitReached()) {
+    info('Course: video play intercepted — daily limit already reached');
+    if (videoEl && !videoEl.paused) {
+      try { videoEl.pause(); } catch (_) {}
+    }
+    return;
+  }
+
+  if (getSetting('muteVideo', false) && videoEl) {
+    applyMuteToElement(videoEl);
+  }
   resumeAttempts = 0;
   scheduleStuckCheck();
   pushProgress();
@@ -598,21 +762,49 @@ function onVideoPause() {
   scheduleStuckCheck();
 }
 
-function onVideoEnded() {
+function onVideoEnded(e) {
   clearTimeout(stuckTimer);
   const courseProgress = parseCourseProgress();
-  appendLog(`视频播放完成 (${courseProgress.currentName || '当前课程'})`);
-  info(`Course: video ended — ${courseProgress.currentName}`);
+  const lessonKey = courseProgress.currentName
+    ? `${courseProgress.courseId || ''}:${courseProgress.currentName}`
+    : '';
+  const { count: todayCount, isNew } = recordCompletedLesson(lessonKey);
+
+  const limit = getSetting('dailyLessonLimit', 0);
+  let remainingText = '';
+  if (limit > 0) {
+    let remaining = getSetting('lessonLimitRemaining', limit);
+    if (isNew) {
+      remaining = Math.max(0, remaining - 1);
+      setSetting('lessonLimitRemaining', remaining);
+    }
+    remainingText = `，本轮还剩 ${remaining} 个视频`;
+  }
+
+  if (isNew) {
+    appendLog(`视频播放完成 (${courseProgress.currentName || '当前课程'})${remainingText}，今日累计已播 ${todayCount} 个视频`);
+    info(`Course: video ended — ${courseProgress.currentName} (today: ${todayCount}${remainingText})`);
+  } else {
+    appendLog(`视频播放完成 (${courseProgress.currentName || '当前课程'}) [重复播放已学视频，不重复计数]`);
+    info(`Course: video ended (duplicate) — ${courseProgress.currentName}`);
+  }
 
   updateCourseProgress({
     ...courseProgress,
     videoProgress: 100,
-    videoPaused: false,
+    videoPaused: true,
     autoCourseEnabled: getSetting('autoCourse', false),
   });
 
   // Re-invalidate cache — platform may navigate to next lesson
   invalidateCourseCache();
+
+  if (checkDailyLessonLimit(e)) {
+    if (e && typeof e.stopImmediatePropagation === 'function') {
+      try { e.stopImmediatePropagation(); } catch (_) {}
+    }
+    return;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -682,7 +874,11 @@ function initVideoMonitor() {
   videoEl.addEventListener('timeupdate', onTimeUpdate);
   videoEl.addEventListener('play', onVideoPlay);
   videoEl.addEventListener('pause', onVideoPause);
-  videoEl.addEventListener('ended', onVideoEnded);
+  videoEl.addEventListener('ended', onVideoEnded, true);
+
+  if (getSetting('muteVideo', false)) {
+    applyMuteToElement(videoEl);
+  }
 
   debug('Course: video event listeners bound');
   return videoEl;
@@ -698,7 +894,7 @@ function unbindVideoListeners(el) {
   el.removeEventListener('timeupdate', onTimeUpdate);
   el.removeEventListener('play', onVideoPlay);
   el.removeEventListener('pause', onVideoPause);
-  el.removeEventListener('ended', onVideoEnded);
+  el.removeEventListener('ended', onVideoEnded, true);
   debug('Course: video event listeners unbound');
 }
 
@@ -760,6 +956,14 @@ export function startCourseMonitor() {
       startDirectoryObserver();
     }
 
+    checkOtherWindowConflict();
+
+    if (isDailyLimitReached()) {
+      if (videoEl && !videoEl.paused) {
+        try { videoEl.pause(); } catch (_) {}
+      }
+    }
+
     pushProgress();
 
     // Schedule next tick with jitter
@@ -771,6 +975,13 @@ export function startCourseMonitor() {
 
   // Auto-play if enabled
   if (getSetting('autoCourse', false)) {
+    const limit = getSetting('dailyLessonLimit', 0);
+    const remaining = getSetting('lessonLimitRemaining', 0);
+    if (limit > 0 && remaining <= 0) {
+      setSetting('lessonLimitRemaining', limit);
+      appendLog(`已重置本轮刷课目标为 ${limit} 个视频`);
+    }
+
     startPlayRetry();
     setStatus(true, '运行中 — 自动刷课已启用');
   }
@@ -842,6 +1053,13 @@ export function isCourseActive() {
 
 onChange('autoCourse', (enabled) => {
   if (enabled) {
+    const limit = getSetting('dailyLessonLimit', 0);
+    const remaining = getSetting('lessonLimitRemaining', 0);
+    if (limit > 0 && remaining <= 0) {
+      setSetting('lessonLimitRemaining', limit);
+      appendLog(`已重置本轮刷课目标为 ${limit} 个视频`);
+    }
+
     if (!running) {
       startCourseMonitor();
     } else {
@@ -862,3 +1080,18 @@ onChange('autoCourse', (enabled) => {
     }
   }
 });
+
+onChange('dailyLessonLimit', (limit) => {
+  if (limit > 0) {
+    setSetting('lessonLimitRemaining', limit);
+  }
+  pushProgress();
+  if (limit > 0 && getSetting('autoCourse', false)) {
+    checkDailyLessonLimit();
+  }
+});
+
+onChange('lessonLimitRemaining', () => {
+  pushProgress();
+});
+

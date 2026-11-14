@@ -32,6 +32,7 @@ import { info, debug, warn } from '../utils/logger.js';
 import { appendLog, setStatus } from '../ui/builder.js';
 import { recordLastPickResult, resetNoRepeatState } from '../pool/image-pool.js';
 import { registerBodyMutationHandler } from '../utils/dom-observer.js';
+import { stopAllRealStreams } from '../core/video-interceptor.js';
 
 let observerUnsubscribe = null;
 let retryAttempt = 0;
@@ -166,7 +167,7 @@ let sequenceTimers = [];
  * CSS selectors for face verification UI elements.
  * These are tried first (fast path); text-content fallback is used when selectors fail.
  */
-const FACE_UI_SELECTORS = {
+export const FACE_UI_SELECTORS = {
   /** The face verification modal container (Ant Design modal) */
   MODAL: '.ant-modal-content',
   /** Open camera button — .face_btns.btn_fill without .btn_contrast */
@@ -208,34 +209,41 @@ export const BTN_TEXT = {
  * @returns {HTMLElement|null}
  */
 export function findButton(selector, textPatterns, root = document) {
-  // 1. Class-based selector (fast path)
-  const el = root.querySelector(selector);
-  if (el) return el;
+  // 1. Class-based selector (fast path with pattern check)
+  if (selector) {
+    try {
+      const candidates = root.querySelectorAll(selector);
+      for (const el of candidates) {
+        if (el.closest && (el.closest('.bfw-panel') || el.closest('.bfw-video-overlay'))) continue;
+        if (textPatterns && textPatterns.length > 0) {
+          if (btnTextMatches(el, textPatterns)) return el;
+        } else {
+          return el;
+        }
+      }
+    } catch (_) {}
+  }
 
   // 2. Text-content fallback (slow path)
   if (textPatterns && textPatterns.length > 0) {
     // Search among .face_btns elements first
     const faceBtns = root.querySelectorAll('.face_btns');
     for (const btn of faceBtns) {
-      const text = (btn.textContent || '').trim();
-      for (const pattern of textPatterns) {
-        if (text.includes(pattern)) return btn;
-      }
+      if (btn.closest && (btn.closest('.bfw-panel') || btn.closest('.bfw-video-overlay'))) continue;
+      if (btnTextMatches(btn, textPatterns)) return btn;
     }
     // Broader: search any button-like element
-    // Exclude our own panel buttons to avoid recursive self-clicks
+    // Exclude our own panel buttons and overlay buttons to avoid recursive self-clicks
     const candidates = root.querySelectorAll('button, [role="button"], .ant-btn, .ant-btn-primary');
     for (const btn of candidates) {
-      if (btn.closest('.bfw-panel')) continue;
-      const text = (btn.textContent || '').trim();
-      for (const pattern of textPatterns) {
-        if (text.includes(pattern)) return btn;
-      }
+      if (btn.closest && (btn.closest('.bfw-panel') || btn.closest('.bfw-video-overlay'))) continue;
+      if (btnTextMatches(btn, textPatterns)) return btn;
     }
   }
 
   return null;
 }
+
 
 /**
  * Check if a button element's text matches any pattern in the list.
@@ -247,6 +255,7 @@ function btnTextMatches(btn, patterns) {
   const text = (btn.textContent || '').trim();
   return patterns.some(p => text.includes(p));
 }
+
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -271,7 +280,7 @@ function clearSequence() {
  * @param {string} label
  * @returns {boolean}
  */
-function clickElement(el, label) {
+export function clickElement(el, label) {
   if (!el) return false;
   try {
     el.click();
@@ -283,6 +292,7 @@ function clickElement(el, label) {
     return false;
   }
 }
+
 
 // ---------------------------------------------------------------------------
 // Retry backoff
@@ -498,6 +508,7 @@ export function clickCompareButton() {
   _lastCompareSubmittedAt = Date.now();
   _compareCooldownMs = jitterMsFloor(AUTO_CONFIG.COMPARE_COOLDOWN_MS, 0.3);
   clickElement(btn, '开始对比');
+
   // Reset retry counter on successful comparison submission
   if (retryAttempt > 0) {
     info(`Retry counter reset (${retryAttempt} → 0) — compare submitted`);
@@ -601,12 +612,21 @@ function handleCompareFailRecovery(modal) {
     }
 
     compareAttempts++;
+    recordLastPickResult(false);
+
+    if (compareAttempts >= AUTO_CONFIG.RETRY_MAX_ATTEMPTS) {
+      warn(`Compare retry limit reached (${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}). Stopping.`);
+      appendLog(`对比重试次数已达上限 (${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次)，请手动操作`);
+      setStatus(false, '已停止 — 对比重试次数已达上限');
+      clearSequence();
+      compareAttempts = AUTO_CONFIG.RETRY_MAX_ATTEMPTS;
+      transitionState('photo_taken');
+      return true;
+    }
+
     const gapMs = getCompareRetryGapMs();
     info(`Verification failed — retry ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}: waiting ${(gapMs / 1000).toFixed(1)}s before retake`);
     appendLog(`验证未通过，${(gapMs / 1000).toFixed(1)}秒后自动重试第 ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次`);
-
-    // Record failure for the last picked image
-    recordLastPickResult(false);
 
     // Clear pending timers (don't touch compareAttempts)
     sequenceTimers.forEach(clearTimeout);
@@ -642,12 +662,21 @@ function handleCompareFailRecovery(modal) {
     }
 
     compareAttempts++;
+    recordLastPickResult(false);
+
+    if (compareAttempts >= AUTO_CONFIG.RETRY_MAX_ATTEMPTS) {
+      warn(`Compare retry limit reached (${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}). Stopping.`);
+      appendLog(`对比重试次数已达上限 (${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次)，请手动操作`);
+      setStatus(false, '已停止 — 对比重试次数已达上限');
+      clearSequence();
+      compareAttempts = AUTO_CONFIG.RETRY_MAX_ATTEMPTS;
+      transitionState('photo_taken');
+      return true;
+    }
+
     const gapMs = getCompareRetryGapMs();
     info(`Verification failed — retry ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}: waiting ${(gapMs / 1000).toFixed(1)}s before direct compare`);
     appendLog(`验证未通过，${(gapMs / 1000).toFixed(1)}秒后直接对比重试第 ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次`);
-
-    // Record failure for the last picked image
-    recordLastPickResult(false);
 
     // Transition now to prevent re-entry while the gap timer runs
     transitionState('photo_taking');
@@ -667,11 +696,20 @@ function handleCompareFailRecovery(modal) {
   const cameraBtn = findButton(FACE_UI_SELECTORS.CAMERA_BTN, BTN_TEXT.CAMERA, modal);
   if (cameraBtn) {
     compareAttempts++;
+    recordLastPickResult(false);
+
+    if (compareAttempts >= AUTO_CONFIG.RETRY_MAX_ATTEMPTS) {
+      warn(`Compare retry limit reached (${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}). Stopping.`);
+      appendLog(`对比重试次数已达上限 (${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次)，请手动操作`);
+      setStatus(false, '已停止 — 对比重试次数已达上限');
+      clearSequence();
+      compareAttempts = AUTO_CONFIG.RETRY_MAX_ATTEMPTS;
+      transitionState('photo_taken');
+      return true;
+    }
+
     info(`Verification failed — retry ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS}: modal reset to initial state`);
     appendLog(`验证未通过，自动重试第 ${compareAttempts}/${AUTO_CONFIG.RETRY_MAX_ATTEMPTS} 次（重新开始）`);
-
-    // Record failure for the last picked image
-    recordLastPickResult(false);
 
     // Reset state so checkAndStartSequence can start a fresh sequence
     clearSequence();
@@ -739,6 +777,20 @@ function checkAndStartSequence() {
       clearSequence();
       compareAttempts = 0;
     }
+    stopAllRealStreams();
+    return false;
+  }
+
+  // Ensure the modal is genuinely a face verification modal, not a system prompt or conflict dialog
+  const modalText = (modal.innerText || modal.textContent || '').trim();
+  if (modalText.includes('其他窗口') || modalText.includes('不能继续学习')) {
+    return false;
+  }
+  const hasFaceMarker = modal.querySelector('.face_btns, .face_btn')
+    || findButton(FACE_UI_SELECTORS.CAMERA_BTN, BTN_TEXT.CAMERA, modal)
+    || findButton(FACE_UI_SELECTORS.PHOTO_BTN, BTN_TEXT.PHOTO, modal)
+    || findButton(FACE_UI_SELECTORS.COMPARE_BTN, BTN_TEXT.COMPARE, modal);
+  if (!hasFaceMarker) {
     return false;
   }
 
@@ -759,6 +811,8 @@ function checkAndStartSequence() {
   if (compareAttempts >= AUTO_CONFIG.RETRY_MAX_ATTEMPTS) {
     if (sequenceState !== 'photo_taken') {
       warn('Check: compare retry limit exhausted — parking in terminal state');
+      sequenceTimers.forEach(clearTimeout);
+      sequenceTimers = [];
       transitionState('photo_taken');
       appendLog('对比重试已达上限，已暂停 — 请手动操作');
       setStatus(false, '已暂停 — 对比重试已达上限');
@@ -814,6 +868,16 @@ function checkAndStartSequence() {
   //          advancing state to camera_opening before the server closed
   //          the modal — leaving state stuck when the next modal opens.
   if (sequenceState !== 'idle' && sequenceState !== 'photo_taken') {
+    if (sequenceState === 'waiting_modal' && (Date.now() - _stateEnteredAt) < AUTO_CONFIG.CLICK_DELAY_MS + 500) {
+      return true;
+    }
+    if (sequenceState === 'camera_opening' && (Date.now() - _stateEnteredAt) < AUTO_CONFIG.CAMERA_OPEN_DELAY_MS + 500) {
+      return true;
+    }
+    if (sequenceState === 'photo_taking' && (Date.now() - _stateEnteredAt) < AUTO_CONFIG.PHOTO_DELAY_MS + 500) {
+      return true;
+    }
+
     const freshCameraBtn = findButton(FACE_UI_SELECTORS.CAMERA_BTN, BTN_TEXT.CAMERA, modal);
     const allPhotoBtns = modal.querySelectorAll(FACE_UI_SELECTORS.PHOTO_BTN);
     let freshPhotoBtn = null;
@@ -960,7 +1024,7 @@ export function startAutoProcessor() {
         // page activity and spuriously wake the face verification state
         // machine.  See: shared MutationObserver → refreshCourseProgress
         // → pushProgress → onTimeUpdate → video element timeupdate event.
-        if (mutation.target.closest && mutation.target.closest('.bfw-panel')) continue;
+        if (mutation.target.closest && (mutation.target.closest('.bfw-panel') || mutation.target.closest('.bfw-video-overlay'))) continue;
 
         clearTimeout(debounceTimer);
         const baseDebounce = retryAttempt > 0
@@ -994,6 +1058,7 @@ export function stopAutoProcessor() {
   clearTimeout(retryBackoffTimer);
   retryBackoffTimer = null;
   clearSequence();
+  stopAllRealStreams();
   document.removeEventListener('bfw:retry', onRetry);
   retryAttempt = 0;
   retryExhausted = false;

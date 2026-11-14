@@ -21,6 +21,7 @@ import {
   refreshStreamImage,
   switchToRealCamera,
   switchToFakeCamera,
+  stopAllRealStreams,
   getStreamConstraints,
 } from '../core/video-interceptor.js';
 import { info, debug, warn } from '../utils/logger.js';
@@ -291,6 +292,24 @@ function cleanupOverlay(video) {
   const state = overlayMap.get(video);
   if (!state) return;
 
+  // Stop any real streams associated with this video element
+  if (state.realStream) {
+    try {
+      for (const track of state.realStream.getTracks()) {
+        track.stop();
+      }
+    } catch (_) {}
+    state.realStream = null;
+  }
+  if (video.srcObject instanceof MediaStream) {
+    try {
+      for (const track of video.srcObject.getTracks()) {
+        track.stop();
+      }
+    } catch (_) {}
+  }
+  stopAllRealStreams();
+
   if (state.resizeObserver) {
     state.resizeObserver.disconnect();
   }
@@ -468,6 +487,7 @@ export function destroyAllOverlays() {
   for (const video of overlayMap.keys()) {
     cleanupOverlay(video);
   }
+  stopAllRealStreams();
   if (observerUnsubscribe) {
     observerUnsubscribe();
     observerUnsubscribe = null;
